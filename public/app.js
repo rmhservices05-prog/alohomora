@@ -48,10 +48,10 @@ function timeAgo(dateString) {
 }
 
 function getMarkerColor(severity) {
-  if (severity === "Critical") return "#ff4d4d";
-  if (severity === "High") return "#ffc400";
-  if (severity === "Medium") return "#f1df74";
-  return "#00d18f";
+  if (severity === "Critical") return "#f3f3f3";
+  if (severity === "High") return "#cccccc";
+  if (severity === "Medium") return "#a6a6a6";
+  return "#0011FF";
 }
 
 function initMap() {

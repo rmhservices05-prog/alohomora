@@ -1,0 +1,15 @@
+<svg width="720" height="150" viewBox="0 0 720 150" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M0 22H98V74H52L0 22Z" fill="#F3F3F3"/>
+  <path d="M0 70H50V120L0 70Z" fill="#F3F3F3"/>
+  <text
+    x="108"
+    y="108"
+    fill="#F3F3F3"
+    font-family="IBM Plex Sans, Arial, sans-serif"
+    font-size="116"
+    font-weight="700"
+    letter-spacing="1.5"
+  >
+    IHOMORA
+  </text>
+</svg>
