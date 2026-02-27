@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alohomora</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+    <main class="app">
+      <header class="topbar">
+        <div class="brand-wrap">
+          <span class="brand-mark">A</span>
+          <h1>Alohomora</h1>
+          <nav class="quick-nav">
+            <button type="button" class="quick-tab is-active" data-route="live">Live</button>
+            <button type="button" class="quick-tab" data-route="community">Community</button>
+          </nav>
+        </div>
+        <label class="search-wrap">
+          <span class="search-icon">&#128269;</span>
+          <input id="search" type="search" placeholder="Search incidents, CVEs, threat actors..." />
+        </label>
+        <div class="top-actions">
+          <span id="refreshState">Refreshing...</span>
+          <button id="refreshBtn">Refresh</button>
+        </div>
+      </header>
+
+      <section class="filters-row">
+        <label class="filter-field">
+          <span>Region</span>
+          <input id="locationFilter" type="search" placeholder="Filter location (e.g. Japan)" />
+        </label>
+        <label class="filter-field filter-field--small">
+          <span>Severity</span>
+          <select id="severityFilter">
+            <option value="ALL">All</option>
+            <option value="Critical">Critical</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </label>
+        <button id="clearFilters" class="ghost-btn">Reset filters</button>
+      </section>
+
+      <section class="panel world-panel">
+        <div class="panel-head">
+          <h2>Global cyber situation</h2>
+          <div class="legend">
+            <span id="incidentCount">0 live events</span>
+            <span><i class="dot critical"></i>High</span>
+            <span><i class="dot medium"></i>Elevated</span>
+            <span><i class="dot low"></i>Low</span>
+          </div>
+        </div>
+        <div class="map-wrap">
+          <div id="worldMap" class="map"></div>
+          <aside class="live-feed-panel">
+            <div class="live-feed-head">
+              <div class="live-feed-head-text">
+                <h3>Live Feed</h3>
+                <span id="lastUpdated">Loading...</span>
+              </div>
+              <button id="feedToggle" class="feed-toggle" type="button" aria-label="Collapse feed">
+                &#10094;
+              </button>
+            </div>
+            <div id="feed" class="live-feed-list"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="stats" id="stats"></section>
+    </main>
+
+    <template id="card-template">
+      <article class="live-item">
+        <div class="live-item-top">
+          <div class="chip-row">
+            <span class="badge category"></span>
+            <span class="badge severity"></span>
+          </div>
+          <span class="age"></span>
+        </div>
+        <a class="title" target="_blank" rel="noopener noreferrer"></a>
+        <p class="meta">
+          <span class="place"></span>
+          <span class="source"></span>
+        </p>
+      </article>
+    </template>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

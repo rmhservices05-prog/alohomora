@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alohomora Community</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./community.css" />
+  </head>
+  <body>
+    <main class="community-shell">
+      <aside class="left-rail">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">A</span>
+          <span>Alohomora</span>
+        </a>
+        <nav class="rail-nav">
+          <a class="rail-link" href="./index.html">Live</a>
+          <a class="rail-link is-active" href="./community.html">Community</a>
+          <a class="rail-link" href="./index.html">Intel</a>
+          <a class="rail-link" href="./index.html">Alerts</a>
+          <a class="rail-link" href="./index.html">Profile</a>
+        </nav>
+        <button id="newPostBtn" class="post-cta" type="button">New Post</button>
+      </aside>
+
+      <section class="timeline-column">
+        <header class="timeline-header">
+          <div>
+            <h1>Community</h1>
+            <p>Threat chatter, analysis, and operator notes.</p>
+          </div>
+          <div class="header-tabs">
+            <button id="latestTab" class="header-tab is-active" type="button">Latest</button>
+            <button id="topTab" class="header-tab" type="button">Top</button>
+          </div>
+        </header>
+
+        <section class="composer">
+          <div class="avatar me">R</div>
+          <div class="composer-main">
+            <textarea
+              id="composerInput"
+              maxlength="280"
+              placeholder="Share intel, ask questions, or discuss active events..."
+            ></textarea>
+            <div class="composer-footer">
+              <span id="charCount">0/280</span>
+              <button id="publishBtn" type="button" disabled>Post</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="timeline" class="timeline"></section>
+      </section>
+
+      <aside class="right-rail">
+        <section class="card">
+          <h2>Search Community</h2>
+          <input id="communitySearch" type="search" placeholder="Search posts, tags, handles..." />
+        </section>
+        <section class="card">
+          <h2>Trending Tags</h2>
+          <ul class="trend-list">
+            <li>#CVE</li>
+            <li>#Ransomware</li>
+            <li>#ThreatIntel</li>
+            <li>#ZeroDay</li>
+            <li>#SOC</li>
+          </ul>
+        </section>
+        <section class="card">
+          <h2>Community Notes</h2>
+          <p>
+            Keep reports factual and include source links. Avoid sharing unverified claims as confirmed incidents.
+          </p>
+        </section>
+      </aside>
+    </main>
+
+    <template id="post-template">
+      <article class="post">
+        <div class="avatar"></div>
+        <div class="post-main">
+          <header class="post-head">
+            <div class="identity">
+              <span class="author"></span>
+              <span class="handle"></span>
+              <span class="dot">·</span>
+              <time class="time"></time>
+            </div>
+          </header>
+          <p class="post-body"></p>
+          <footer class="post-actions">
+            <button class="action reply-btn" type="button">Reply <span class="count"></span></button>
+            <button class="action repost-btn" type="button">Repost <span class="count"></span></button>
+            <button class="action like-btn" type="button">Like <span class="count"></span></button>
+          </footer>
+        </div>
+      </article>
+    </template>
+
+    <script src="./community.js"></script>
+  </body>
+</html>
