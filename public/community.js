@@ -7,68 +7,28 @@ const communitySearch = document.getElementById("communitySearch");
 const newPostBtn = document.getElementById("newPostBtn");
 const latestTab = document.getElementById("latestTab");
 const topTab = document.getElementById("topTab");
+const communityState = document.getElementById("communityState");
 
 const MAX_LENGTH = 280;
 const STORAGE_POSTS_KEY = "alohomora-community-user-posts";
 const STORAGE_LIKES_KEY = "alohomora-community-liked";
-
-const seedPosts = [
-  {
-    id: "seed-1",
-    author: "Maya Chen",
-    handle: "@maya_cti",
-    body: "Seeing fresh phishing infra mimicking Okta admin prompts. SOC teams should watch abnormal MFA fatigue patterns. #ThreatIntel #SOC",
-    createdAt: minutesAgo(6),
-    likes: 42,
-    replies: 9,
-    reposts: 14
-  },
-  {
-    id: "seed-2",
-    author: "BlueTeamOps",
-    handle: "@blueteamops",
-    body: "New edge firewall rules blocked outbound C2 callbacks tied to a Qakbot-like chain. Sharing indicators soon.",
-    createdAt: minutesAgo(13),
-    likes: 58,
-    replies: 17,
-    reposts: 22
-  },
-  {
-    id: "seed-3",
-    author: "Nadia Iqbal",
-    handle: "@nadiasec",
-    body: "If you are patching this weekend, prioritize internet-facing auth services first. Most exploit chatter is focused there. #ZeroDay",
-    createdAt: minutesAgo(21),
-    likes: 90,
-    replies: 18,
-    reposts: 34
-  },
-  {
-    id: "seed-4",
-    author: "Incident Room",
-    handle: "@incroom",
-    body: "Thread: quick playbook for ransomware triage in the first 30 minutes. 1) isolate, 2) preserve logs, 3) identify blast radius.",
-    createdAt: minutesAgo(39),
-    likes: 128,
-    replies: 29,
-    reposts: 51
-  }
-];
+const STORAGE_DELTAS_KEY = "alohomora-community-metric-deltas";
 
 let likedPostIds = loadJson(STORAGE_LIKES_KEY, []);
-let userPosts = loadJson(STORAGE_POSTS_KEY, []);
+let metricDeltas = loadJson(STORAGE_DELTAS_KEY, {});
+let userPosts = loadJson(STORAGE_POSTS_KEY, []).map(normalizePost);
+let remotePosts = [];
 let sortMode = "latest";
-
-function minutesAgo(value) {
-  return new Date(Date.now() - value * 60 * 1000).toISOString();
-}
 
 function loadJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : fallback;
+    if (Array.isArray(fallback)) {
+      return Array.isArray(parsed) ? parsed : fallback;
+    }
+    return parsed && typeof parsed === "object" ? parsed : fallback;
   } catch (error) {
     return fallback;
   }
@@ -78,8 +38,31 @@ function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function normalizePost(post) {
+  return {
+    id: String(post.id || `user-${Date.now()}`),
+    author: post.author || "Unknown",
+    handle: post.handle || "@unknown",
+    body: String(post.body || "").trim(),
+    createdAt: post.createdAt || new Date().toISOString(),
+    likes: Number(post.likes || 0),
+    replies: Number(post.replies || 0),
+    reposts: Number(post.reposts || 0),
+    source: post.source || "local",
+    sourceUrl: post.sourceUrl || null
+  };
+}
+
+function getDelta(postId, metric) {
+  return Number(metricDeltas?.[postId]?.[metric] || 0);
+}
+
+function getMetricCount(post, metric) {
+  return Math.max(0, Number(post[metric] || 0) + getDelta(post.id, metric));
+}
+
 function getPosts() {
-  const posts = [...seedPosts, ...userPosts];
+  const posts = [...remotePosts, ...userPosts].map(normalizePost);
 
   if (sortMode === "top") {
     return posts.sort((a, b) => score(b) - score(a));
@@ -89,11 +72,14 @@ function getPosts() {
 }
 
 function score(post) {
-  return post.likes * 1 + post.replies * 2 + post.reposts * 1.6;
+  return getMetricCount(post, "likes") * 1 + getMetricCount(post, "replies") * 2 + getMetricCount(post, "reposts") * 1.6;
 }
 
 function formatRelativeTime(dateString) {
-  const deltaSeconds = Math.max(1, Math.floor((Date.now() - new Date(dateString).getTime()) / 1000));
+  const timestamp = new Date(dateString).getTime();
+  if (!Number.isFinite(timestamp)) return "now";
+
+  const deltaSeconds = Math.max(1, Math.floor((Date.now() - timestamp) / 1000));
   if (deltaSeconds < 60) return `${deltaSeconds}s`;
   const minutes = Math.floor(deltaSeconds / 60);
   if (minutes < 60) return `${minutes}m`;
@@ -103,8 +89,19 @@ function formatRelativeTime(dateString) {
   return `${days}d`;
 }
 
+function formatSyncTime(dateString) {
+  if (!dateString) return "Unknown";
+  const date = new Date(dateString);
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
 function markupText(text) {
-  const escaped = text
+  const escaped = String(text || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
@@ -112,6 +109,10 @@ function markupText(text) {
   return escaped
     .replace(/(^|\s)(@[a-zA-Z0-9_]+)/g, '$1<span class="mention">$2</span>')
     .replace(/(^|\s)(#[a-zA-Z0-9_]+)/g, '$1<span class="tag">$2</span>');
+}
+
+function renderEmptyTimeline(message) {
+  timelineNode.innerHTML = `<article class="post"><div class="post-main"><p class="post-body">${message}</p></div></article>`;
 }
 
 function renderTimeline() {
@@ -124,12 +125,18 @@ function renderTimeline() {
 
   timelineNode.innerHTML = "";
 
+  if (!posts.length) {
+    renderEmptyTimeline(query ? "No posts match your search." : "No community posts available yet.");
+    return;
+  }
+
   for (const post of posts) {
     const clone = postTemplate.content.cloneNode(true);
     const article = clone.querySelector(".post");
     const likeBtn = clone.querySelector(".like-btn");
     const replyBtn = clone.querySelector(".reply-btn");
     const repostBtn = clone.querySelector(".repost-btn");
+    const sourceLink = clone.querySelector(".source-link");
 
     article.dataset.id = post.id;
     clone.querySelector(".avatar").textContent = post.author.slice(0, 1).toUpperCase();
@@ -138,12 +145,20 @@ function renderTimeline() {
     clone.querySelector(".time").textContent = formatRelativeTime(post.createdAt);
     clone.querySelector(".post-body").innerHTML = markupText(post.body);
 
-    replyBtn.querySelector(".count").textContent = post.replies;
-    repostBtn.querySelector(".count").textContent = post.reposts;
-    likeBtn.querySelector(".count").textContent = post.likes;
+    replyBtn.querySelector(".count").textContent = getMetricCount(post, "replies");
+    repostBtn.querySelector(".count").textContent = getMetricCount(post, "reposts");
+    likeBtn.querySelector(".count").textContent = getMetricCount(post, "likes");
 
     if (likedPostIds.includes(post.id)) {
       likeBtn.classList.add("is-liked");
+    }
+
+    if (post.sourceUrl) {
+      sourceLink.hidden = false;
+      sourceLink.href = post.sourceUrl;
+    } else {
+      sourceLink.hidden = true;
+      sourceLink.removeAttribute("href");
     }
 
     timelineNode.appendChild(clone);
@@ -161,7 +176,7 @@ function createPost() {
   const body = composerInput.value.trim();
   if (!body || body.length > MAX_LENGTH) return;
 
-  const newPost = {
+  const newPost = normalizePost({
     id: `user-${Date.now()}`,
     author: "Ryan",
     handle: "@ryan",
@@ -169,8 +184,9 @@ function createPost() {
     createdAt: new Date().toISOString(),
     likes: 0,
     replies: 0,
-    reposts: 0
-  };
+    reposts: 0,
+    source: "local"
+  });
 
   userPosts = [newPost, ...userPosts];
   saveJson(STORAGE_POSTS_KEY, userPosts);
@@ -179,42 +195,56 @@ function createPost() {
   renderTimeline();
 }
 
-function toggleLike(postId) {
-  const list = getPosts();
-  const post = list.find((entry) => entry.id === postId);
-  if (!post) return;
-
-  const liked = likedPostIds.includes(postId);
-  if (liked) {
-    post.likes = Math.max(0, post.likes - 1);
-    likedPostIds = likedPostIds.filter((id) => id !== postId);
-  } else {
-    post.likes += 1;
-    likedPostIds = [...likedPostIds, postId];
+function ensureDeltaBucket(postId) {
+  if (!metricDeltas[postId]) {
+    metricDeltas[postId] = { likes: 0, replies: 0, reposts: 0 };
   }
+  return metricDeltas[postId];
+}
 
-  const userMatch = userPosts.find((entry) => entry.id === postId);
-  if (userMatch) {
-    userMatch.likes = post.likes;
-    saveJson(STORAGE_POSTS_KEY, userPosts);
+function toggleLike(postId) {
+  const bucket = ensureDeltaBucket(postId);
+  const liked = likedPostIds.includes(postId);
+
+  if (liked) {
+    likedPostIds = likedPostIds.filter((id) => id !== postId);
+    bucket.likes -= 1;
+  } else {
+    likedPostIds = [...likedPostIds, postId];
+    bucket.likes += 1;
   }
 
   saveJson(STORAGE_LIKES_KEY, likedPostIds);
+  saveJson(STORAGE_DELTAS_KEY, metricDeltas);
   renderTimeline();
 }
 
 function incrementCount(postId, key) {
-  const userMatch = userPosts.find((entry) => entry.id === postId);
-  if (userMatch) {
-    userMatch[key] += 1;
-    saveJson(STORAGE_POSTS_KEY, userPosts);
-    renderTimeline();
-    return;
-  }
+  const bucket = ensureDeltaBucket(postId);
+  bucket[key] += 1;
+  saveJson(STORAGE_DELTAS_KEY, metricDeltas);
+  renderTimeline();
+}
 
-  const seedMatch = seedPosts.find((entry) => entry.id === postId);
-  if (seedMatch) {
-    seedMatch[key] += 1;
+async function loadCommunityFeed(forceRefresh = false) {
+  communityState.textContent = "Syncing X hashtag feed...";
+
+  try {
+    const response = await fetch(`/api/community?limit=80${forceRefresh ? "&refresh=1" : ""}`);
+    if (!response.ok) throw new Error("Community feed request failed.");
+
+    const data = await response.json();
+    remotePosts = (data.items || []).map(normalizePost);
+
+    if (data.warning) {
+      communityState.textContent = data.warning;
+    } else {
+      communityState.textContent = `Synced ${formatSyncTime(data.generatedAt)} • ${data.count} live posts`;
+    }
+
+    renderTimeline();
+  } catch (error) {
+    communityState.textContent = "Live X feed unavailable right now.";
     renderTimeline();
   }
 }
@@ -240,6 +270,7 @@ timelineNode.addEventListener("click", (event) => {
     composerInput.value = `${found.handle} `;
     updateComposerState();
     composerInput.focus();
+    incrementCount(id, "replies");
     return;
   }
 
@@ -264,3 +295,5 @@ topTab.addEventListener("click", () => {
 
 updateComposerState();
 renderTimeline();
+loadCommunityFeed();
+setInterval(() => loadCommunityFeed(true), 1000 * 60 * 2);

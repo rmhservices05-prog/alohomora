@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alohomora Changelog</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+    <main class="app changelog-app">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <div class="brand-wrap">
+            <div class="brand-logo" aria-label="HOMORA">
+              <img src="./logo-final.png" alt="ALOHOMORA" class="brand-logo-image" />
+            </div>
+          </div>
+          <nav class="quick-nav" aria-label="Primary">
+            <button type="button" class="quick-tab" data-route="live">Live</button>
+            <button type="button" class="quick-tab" data-route="community">Community</button>
+            <button type="button" class="quick-tab is-active" data-route="changelog">Changelog</button>
+          </nav>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div class="topbar-title-wrap">
+            <h1 class="changelog-title">Changelog</h1>
+            <p class="changelog-subtitle">Professional product updates and platform improvements.</p>
+          </div>
+          <div class="top-actions">
+            <span id="changelogState">Loading...</span>
+            <button id="changelogRefreshBtn">Refresh</button>
+          </div>
+        </header>
+
+        <div class="workspace-scroll">
+          <section class="panel changelog-panel">
+            <div class="panel-head">
+              <h2>Latest updates from Ryan M</h2>
+            </div>
+            <div class="changelog-feed-wrap">
+              <div id="changelogFeed" class="changelog-feed" aria-live="polite">
+                <article class="release-entry release-entry--empty">Loading changelog...</article>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="./changelog.js"></script>
+  </body>
+</html>

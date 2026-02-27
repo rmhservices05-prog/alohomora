@@ -1,4 +1,5 @@
 const path = require("path");
+const { execFile } = require("child_process");
 const express = require("express");
 const Parser = require("rss-parser");
 
@@ -17,8 +18,18 @@ const FEEDS = [
   { name: "Krebs on Security", url: "https://krebsonsecurity.com/feed/" },
   { name: "SecurityWeek", url: "https://www.securityweek.com/feed/" },
   { name: "Dark Reading", url: "https://www.darkreading.com/rss.xml" },
-  { name: "CISA Alerts", url: "https://www.cisa.gov/cybersecurity-advisories/all.xml" }
+  { name: "CISA Alerts", url: "https://www.cisa.gov/cybersecurity-advisories/all.xml" },
+  { name: "The Record", url: "https://therecord.media/feed" },
+  { name: "CyberScoop", url: "https://cyberscoop.com/feed/" },
+  { name: "GBHackers", url: "https://gbhackers.com/feed/" }
 ];
+
+const X_QUERY =
+  process.env.X_SEARCH_QUERY ||
+  "(#cybersecurity OR #infosec OR #threatintel OR #ransomware OR #malware OR #cve OR #zeroday OR #cyberattack) lang:en -is:retweet -is:reply";
+const X_COMMUNITY_MAX_RESULTS = 100;
+const X_COMMUNITY_DEFAULT_LIMIT = 40;
+const X_COMMUNITY_CACHE_TTL = 1000 * 60;
 
 const categoryRules = [
   { key: "Ransomware", words: ["ransomware", "extortion", "locker"] },
@@ -36,32 +47,125 @@ const severityRules = [
   { level: "Medium", words: ["vulnerability", "patch", "phishing", "malware"] }
 ];
 
-const locationRules = [
-  { label: "United States", lat: 38.9072, lng: -77.0369, words: [" united states ", " u.s. ", " usa ", " washington ", " america "] },
-  { label: "United Kingdom", lat: 51.5072, lng: -0.1276, words: [" united kingdom ", " uk ", " britain ", " london "] },
-  { label: "France", lat: 48.8566, lng: 2.3522, words: [" france ", " paris "] },
-  { label: "Germany", lat: 52.52, lng: 13.405, words: [" germany ", " berlin "] },
-  { label: "Netherlands", lat: 52.3676, lng: 4.9041, words: [" netherlands ", " amsterdam ", " dutch "] },
-  { label: "Belgium", lat: 50.8503, lng: 4.3517, words: [" belgium ", " brussels "] },
-  { label: "Ukraine", lat: 50.4501, lng: 30.5234, words: [" ukraine ", " kyiv "] },
-  { label: "Russia", lat: 55.7558, lng: 37.6173, words: [" russia ", " moscow ", " kremlin "] },
-  { label: "Israel", lat: 32.0853, lng: 34.7818, words: [" israel ", " tel aviv "] },
-  { label: "Turkey", lat: 41.0082, lng: 28.9784, words: [" turkey ", " istanbul ", " ankara "] },
-  { label: "Iran", lat: 35.6892, lng: 51.389, words: [" iran ", " tehran "] },
-  { label: "India", lat: 28.6139, lng: 77.209, words: [" india ", " delhi ", " mumbai ", " bengaluru ", " bangalore "] },
-  { label: "China", lat: 39.9042, lng: 116.4074, words: [" china ", " beijing ", " shanghai "] },
-  { label: "Taiwan", lat: 25.033, lng: 121.5654, words: [" taiwan ", " taipei "] },
-  { label: "Japan", lat: 35.6762, lng: 139.6503, words: [" japan ", " tokyo "] },
-  { label: "South Korea", lat: 37.5665, lng: 126.978, words: [" south korea ", " seoul ", " korea "] },
-  { label: "Singapore", lat: 1.3521, lng: 103.8198, words: [" singapore "] },
-  { label: "Australia", lat: -33.8688, lng: 151.2093, words: [" australia ", " sydney ", " melbourne "] },
-  { label: "Brazil", lat: -23.5505, lng: -46.6333, words: [" brazil ", " sao paulo ", " rio de janeiro "] },
-  { label: "Mexico", lat: 19.4326, lng: -99.1332, words: [" mexico ", " mexico city "] },
-  { label: "Canada", lat: 45.4215, lng: -75.6972, words: [" canada ", " ottawa ", " toronto ", " vancouver "] },
-  { label: "UAE", lat: 25.2048, lng: 55.2708, words: [" uae ", " united arab emirates ", " dubai ", " abu dhabi "] },
-  { label: "Saudi Arabia", lat: 24.7136, lng: 46.6753, words: [" saudi arabia ", " riyadh "] },
-  { label: "South Africa", lat: -26.2041, lng: 28.0473, words: [" south africa ", " johannesburg ", " cape town "] }
+const countryLocations = [
+  { label: "United States", lat: 38.9072, lng: -77.0369, aliases: ["united states", "u.s.", "usa", "u.s.a", "america"] },
+  { label: "United Kingdom", lat: 51.5072, lng: -0.1276, aliases: ["united kingdom", "uk", "britain", "great britain"] },
+  { label: "France", lat: 48.8566, lng: 2.3522, aliases: ["france"] },
+  { label: "Germany", lat: 52.52, lng: 13.405, aliases: ["germany"] },
+  { label: "Netherlands", lat: 52.3676, lng: 4.9041, aliases: ["netherlands", "dutch"] },
+  { label: "Belgium", lat: 50.8503, lng: 4.3517, aliases: ["belgium"] },
+  { label: "Ukraine", lat: 50.4501, lng: 30.5234, aliases: ["ukraine"] },
+  { label: "Russia", lat: 55.7558, lng: 37.6173, aliases: ["russia"] },
+  { label: "Israel", lat: 32.0853, lng: 34.7818, aliases: ["israel"] },
+  { label: "Turkey", lat: 41.0082, lng: 28.9784, aliases: ["turkey"] },
+  { label: "Iran", lat: 35.6892, lng: 51.389, aliases: ["iran"] },
+  { label: "India", lat: 28.6139, lng: 77.209, aliases: ["india"] },
+  { label: "China", lat: 39.9042, lng: 116.4074, aliases: ["china"] },
+  { label: "Taiwan", lat: 25.033, lng: 121.5654, aliases: ["taiwan"] },
+  { label: "Japan", lat: 35.6762, lng: 139.6503, aliases: ["japan"] },
+  { label: "South Korea", lat: 37.5665, lng: 126.978, aliases: ["south korea", "republic of korea"] },
+  { label: "Singapore", lat: 1.3521, lng: 103.8198, aliases: ["singapore"] },
+  { label: "Australia", lat: -33.8688, lng: 151.2093, aliases: ["australia"] },
+  { label: "Brazil", lat: -23.5505, lng: -46.6333, aliases: ["brazil"] },
+  { label: "Mexico", lat: 19.4326, lng: -99.1332, aliases: ["mexico"] },
+  { label: "Canada", lat: 45.4215, lng: -75.6972, aliases: ["canada"] },
+  { label: "UAE", lat: 25.2048, lng: 55.2708, aliases: ["uae", "united arab emirates"] },
+  { label: "Saudi Arabia", lat: 24.7136, lng: 46.6753, aliases: ["saudi arabia"] },
+  { label: "South Africa", lat: -26.2041, lng: 28.0473, aliases: ["south africa"] }
 ];
+
+const usStateLocations = [
+  ["Alabama", 32.8067, -86.7911], ["Alaska", 61.3707, -152.4044], ["Arizona", 33.7298, -111.4312],
+  ["Arkansas", 34.9697, -92.3731], ["California", 36.1162, -119.6816], ["Colorado", 39.0598, -105.3111],
+  ["Connecticut", 41.5978, -72.7554], ["Delaware", 39.3185, -75.5071], ["Florida", 27.7663, -81.6868],
+  ["Georgia", 33.0406, -83.6431], ["Hawaii", 21.0943, -157.4983], ["Idaho", 44.2405, -114.4788],
+  ["Illinois", 40.3495, -88.9861], ["Indiana", 39.8494, -86.2583], ["Iowa", 42.0115, -93.2105],
+  ["Kansas", 38.5266, -96.7265], ["Kentucky", 37.6681, -84.6701], ["Louisiana", 31.1695, -91.8678],
+  ["Maine", 44.6940, -69.3819], ["Maryland", 39.0639, -76.8021], ["Massachusetts", 42.2302, -71.5301],
+  ["Michigan", 43.3266, -84.5361], ["Minnesota", 45.6945, -93.9002], ["Mississippi", 32.7416, -89.6787],
+  ["Missouri", 38.4561, -92.2884], ["Montana", 46.9219, -110.4544], ["Nebraska", 41.1254, -98.2681],
+  ["Nevada", 38.3135, -117.0554], ["New Hampshire", 43.4525, -71.5639], ["New Jersey", 40.2989, -74.5210],
+  ["New Mexico", 34.8405, -106.2485], ["New York", 42.1657, -74.9481], ["North Carolina", 35.6301, -79.8064],
+  ["North Dakota", 47.5289, -99.7840], ["Ohio", 40.3888, -82.7649], ["Oklahoma", 35.5653, -96.9289],
+  ["Oregon", 44.5720, -122.0709], ["Pennsylvania", 40.5908, -77.2098], ["Rhode Island", 41.6809, -71.5118],
+  ["South Carolina", 33.8569, -80.9450], ["South Dakota", 44.2998, -99.4388], ["Tennessee", 35.7478, -86.6923],
+  ["Texas", 31.0545, -97.5635], ["Utah", 40.1500, -111.8624], ["Vermont", 44.0459, -72.7107],
+  ["Virginia", 37.7693, -78.1700], ["Washington", 47.4009, -121.4905], ["West Virginia", 38.4912, -80.9545],
+  ["Wisconsin", 44.2685, -89.6165], ["Wyoming", 42.7560, -107.3025], ["District of Columbia", 38.9072, -77.0369]
+].map(([label, lat, lng]) => ({ label, lat, lng, aliases: [label] }));
+
+const cityLocations = [
+  ["Washington, DC", 38.9072, -77.0369, ["washington d.c.", "washington dc"]],
+  ["New York City", 40.7128, -74.006, ["new york city", "nyc"]],
+  ["Los Angeles", 34.0522, -118.2437, []],
+  ["San Francisco", 37.7749, -122.4194, []],
+  ["San Jose", 37.3382, -121.8863, []],
+  ["San Diego", 32.7157, -117.1611, []],
+  ["Seattle", 47.6062, -122.3321, []],
+  ["Austin", 30.2672, -97.7431, []],
+  ["Dallas", 32.7767, -96.797, []],
+  ["Houston", 29.7604, -95.3698, []],
+  ["Chicago", 41.8781, -87.6298, []],
+  ["Miami", 25.7617, -80.1918, []],
+  ["Atlanta", 33.749, -84.388, []],
+  ["Denver", 39.7392, -104.9903, []],
+  ["Phoenix", 33.4484, -112.074, []],
+  ["Las Vegas", 36.1699, -115.1398, []],
+  ["Boston", 42.3601, -71.0589, []],
+  ["Philadelphia", 39.9526, -75.1652, []],
+  ["Portland", 45.5152, -122.6784, []],
+  ["Raleigh", 35.7796, -78.6382, []],
+  ["Nashville", 36.1627, -86.7816, []],
+  ["Detroit", 42.3314, -83.0458, []],
+  ["Minneapolis", 44.9778, -93.265, []],
+  ["Charlotte", 35.2271, -80.8431, []],
+  ["Orlando", 28.5383, -81.3792, []],
+  ["Tampa", 27.9506, -82.4572, []],
+  ["London", 51.5072, -0.1276, []],
+  ["Paris", 48.8566, 2.3522, []],
+  ["Berlin", 52.52, 13.405, []],
+  ["Brussels", 50.8503, 4.3517, []],
+  ["Kyiv", 50.4501, 30.5234, []],
+  ["Moscow", 55.7558, 37.6173, []],
+  ["Tel Aviv", 32.0853, 34.7818, []],
+  ["Tehran", 35.6892, 51.389, []],
+  ["Delhi", 28.6139, 77.209, ["new delhi"]],
+  ["Mumbai", 19.076, 72.8777, []],
+  ["Bengaluru", 12.9716, 77.5946, ["bangalore"]],
+  ["Beijing", 39.9042, 116.4074, []],
+  ["Shanghai", 31.2304, 121.4737, []],
+  ["Taipei", 25.033, 121.5654, []],
+  ["Tokyo", 35.6762, 139.6503, []],
+  ["Seoul", 37.5665, 126.978, []],
+  ["Singapore", 1.3521, 103.8198, []],
+  ["Sydney", -33.8688, 151.2093, []],
+  ["Melbourne", -37.8136, 144.9631, []],
+  ["Sao Paulo", -23.5505, -46.6333, ["são paulo"]],
+  ["Rio de Janeiro", -22.9068, -43.1729, []],
+  ["Mexico City", 19.4326, -99.1332, []],
+  ["Toronto", 43.6532, -79.3832, []],
+  ["Vancouver", 49.2827, -123.1207, []],
+  ["Dubai", 25.2048, 55.2708, []],
+  ["Abu Dhabi", 24.4539, 54.3773, []],
+  ["Riyadh", 24.7136, 46.6753, []],
+  ["Johannesburg", -26.2041, 28.0473, []],
+  ["Cape Town", -33.9249, 18.4241, []]
+].map(([label, lat, lng, aliases]) => ({ label, lat, lng, aliases: [label, ...(aliases || [])] }));
+
+const locationRules = [
+  ...cityLocations.map((entry) => ({ ...entry, type: "city", score: 300 })),
+  ...usStateLocations.map((entry) => ({ ...entry, type: "state", score: 200 })),
+  ...countryLocations.map((entry) => ({ ...entry, type: "country", score: 100 }))
+];
+
+const articleMetaCache = new Map();
+const ARTICLE_META_TTL = 1000 * 60 * 60 * 6;
+const communityCache = {
+  expiresAt: 0,
+  items: [],
+  warning: null,
+  generatedAt: null
+};
 
 function scoreByKeyword(text, rules) {
   const lower = (text || "").toLowerCase();
@@ -79,17 +183,94 @@ function classifyItem(title, summary = "", categories = []) {
   };
 }
 
-function inferLocation(title, summary = "", categories = []) {
-  const text = ` ${`${title || ""} ${summary || ""} ${(categories || []).join(" ")}`.toLowerCase()} `;
-  const location = locationRules.find((rule) => rule.words.some((word) => text.includes(word)));
+function aliasMatch(text, alias) {
+  const normalizedAlias = alias.toLowerCase().trim();
+  if (!normalizedAlias) return false;
 
-  if (!location) return null;
+  const escaped = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`\\b${escaped}\\b`, "i");
+  return pattern.test(text);
+}
+
+function inferLocation(title, summary = "", categories = []) {
+  const text = `${title || ""} ${summary || ""} ${(categories || []).join(" ")}`.toLowerCase();
+  const matches = [];
+
+  for (const rule of locationRules) {
+    let aliasLength = 0;
+    let matched = false;
+
+    for (const alias of rule.aliases) {
+      if (aliasMatch(text, alias)) {
+        matched = true;
+        aliasLength = Math.max(aliasLength, alias.length);
+      }
+    }
+
+    if (!matched) continue;
+    matches.push({ ...rule, aliasLength });
+  }
+
+  if (!matches.length) return null;
+
+  matches.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return b.aliasLength - a.aliasLength;
+  });
+
+  const best = matches[0];
 
   return {
-    label: location.label,
-    lat: location.lat,
-    lng: location.lng
+    label: best.label,
+    lat: best.lat,
+    lng: best.lng,
+    type: best.type
   };
+}
+
+function firstImageFromHtml(html = "") {
+  const imageMetaPatterns = [
+    /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i,
+    /<img[^>]+src=["']([^"']+)["']/i
+  ];
+
+  for (const pattern of imageMetaPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) return match[1];
+  }
+
+  return null;
+}
+
+function pickFeedImage(item) {
+  const direct = item?.enclosure?.url;
+  if (direct) return direct;
+
+  const mediaContent = item?.["media:content"];
+  if (mediaContent?.url) return mediaContent.url;
+  if (Array.isArray(mediaContent) && mediaContent[0]?.url) return mediaContent[0].url;
+
+  const mediaThumbnail = item?.["media:thumbnail"];
+  if (mediaThumbnail?.url) return mediaThumbnail.url;
+  if (Array.isArray(mediaThumbnail) && mediaThumbnail[0]?.url) return mediaThumbnail[0].url;
+
+  const content = `${item?.content || ""}`;
+  return firstImageFromHtml(content);
+}
+
+function normalizeImageUrl(imageUrl, baseUrl) {
+  if (!imageUrl) return null;
+
+  try {
+    const normalized = new URL(imageUrl, baseUrl);
+    if (!["http:", "https:"].includes(normalized.protocol)) return null;
+    return normalized.toString();
+  } catch (error) {
+    return null;
+  }
 }
 
 function normalizeItem(item, source) {
@@ -100,6 +281,7 @@ function normalizeItem(item, source) {
   const categories = Array.isArray(item.categories) ? item.categories : [];
   const { category, severity } = classifyItem(title, summary, categories);
   const location = inferLocation(title, summary, categories);
+  const image = normalizeImageUrl(pickFeedImage(item), item.link || source.url);
 
   return {
     id: `${source.name}:${item.guid || item.link || title}`.replace(/\s+/g, "_"),
@@ -111,7 +293,8 @@ function normalizeItem(item, source) {
     categories,
     category,
     severity,
-    location
+    location,
+    image
   };
 }
 
@@ -130,9 +313,10 @@ async function loadAllFeeds() {
   const deduped = new Map();
 
   for (const item of merged) {
-    if (!item.link) continue;
-    if (!deduped.has(item.link)) {
-      deduped.set(item.link, item);
+    const key = item.link || item.id;
+    if (!key) continue;
+    if (!deduped.has(key)) {
+      deduped.set(key, item);
     }
   }
 
@@ -141,6 +325,236 @@ async function loadAllFeeds() {
     const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
     return bTime - aTime;
   });
+}
+
+function normalizeSourceUrl(input) {
+  try {
+    const url = new URL(String(input || ""));
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    return url.toString();
+  } catch (error) {
+    return null;
+  }
+}
+
+function cachedArticleMeta(url) {
+  const entry = articleMetaCache.get(url);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    articleMetaCache.delete(url);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCachedArticleMeta(url, value) {
+  articleMetaCache.set(url, {
+    value,
+    expiresAt: Date.now() + ARTICLE_META_TTL
+  });
+}
+
+function parseMetaTag(html, key, attribute = "property") {
+  const pattern = new RegExp(`<meta[^>]+${attribute}=["']${key}["'][^>]+content=["']([^"']+)["']`, "i");
+  const reversePattern = new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+${attribute}=["']${key}["']`, "i");
+  const match = html.match(pattern) || html.match(reversePattern);
+  return match?.[1] || null;
+}
+
+async function fetchArticleMeta(articleUrl) {
+  const cached = cachedArticleMeta(articleUrl);
+  if (cached) return cached;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9000);
+
+  try {
+    const response = await fetch(articleUrl, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "alohomora/1.0",
+        Accept: "text/html,application/xhtml+xml"
+      }
+    });
+
+    if (!response.ok) {
+      const fallback = { url: articleUrl };
+      setCachedArticleMeta(articleUrl, fallback);
+      return fallback;
+    }
+
+    const html = await response.text();
+    const title = parseMetaTag(html, "og:title") || html.match(/<title>([^<]+)<\/title>/i)?.[1] || null;
+    const description =
+      parseMetaTag(html, "og:description") ||
+      parseMetaTag(html, "twitter:description", "name") ||
+      parseMetaTag(html, "description", "name") ||
+      null;
+
+    const image = normalizeImageUrl(
+      parseMetaTag(html, "og:image") || parseMetaTag(html, "twitter:image", "name") || firstImageFromHtml(html),
+      articleUrl
+    );
+
+    const payload = {
+      url: articleUrl,
+      title: title ? title.trim() : null,
+      description: description ? description.trim() : null,
+      image
+    };
+
+    setCachedArticleMeta(articleUrl, payload);
+    return payload;
+  } catch (error) {
+    const fallback = { url: articleUrl };
+    setCachedArticleMeta(articleUrl, fallback);
+    return fallback;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function loadChangelog(limit = 40) {
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      ["log", `-n${Math.max(1, limit)}`, "--date=short", "--pretty=format:%h|%ad|%an|%s"],
+      { cwd: __dirname },
+      (error, stdout) => {
+        if (error || !stdout) {
+          resolve([]);
+          return;
+        }
+
+        const items = stdout
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => {
+            const [hash, date, author, ...messageParts] = line.split("|");
+            return {
+              hash,
+              date,
+              author,
+              message: messageParts.join("|")
+            };
+          });
+
+        resolve(items);
+      }
+    );
+  });
+}
+
+function clampCommunityLimit(value) {
+  const parsed = Number(value || X_COMMUNITY_DEFAULT_LIMIT);
+  if (!Number.isFinite(parsed) || parsed < 1) return X_COMMUNITY_DEFAULT_LIMIT;
+  return Math.min(parsed, X_COMMUNITY_MAX_RESULTS);
+}
+
+function normalizeCommunityText(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function mapXCommunityItems(payload) {
+  const users = new Map((payload?.includes?.users || []).map((user) => [user.id, user]));
+  const tweets = Array.isArray(payload?.data) ? payload.data : [];
+
+  return tweets
+    .map((tweet) => {
+      const user = users.get(tweet.author_id) || {};
+      const username = user.username || "unknown";
+
+      return {
+        id: `x:${tweet.id}`,
+        author: user.name || username,
+        handle: `@${username}`,
+        body: normalizeCommunityText(tweet.text || ""),
+        createdAt: tweet.created_at || null,
+        likes: Number(tweet.public_metrics?.like_count || 0),
+        replies: Number(tweet.public_metrics?.reply_count || 0),
+        reposts: Number(tweet.public_metrics?.retweet_count || 0),
+        source: "x",
+        sourceUrl: `https://x.com/${username}/status/${tweet.id}`
+      };
+    })
+    .filter((item) => item.body.length > 0);
+}
+
+async function fetchXCommunityFeed(limit = X_COMMUNITY_DEFAULT_LIMIT, forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && communityCache.expiresAt > now) {
+    return {
+      generatedAt: communityCache.generatedAt || new Date().toISOString(),
+      items: communityCache.items,
+      warning: communityCache.warning
+    };
+  }
+
+  const token = process.env.X_BEARER_TOKEN;
+  if (!token) {
+    communityCache.expiresAt = now + X_COMMUNITY_CACHE_TTL;
+    communityCache.generatedAt = new Date().toISOString();
+    communityCache.items = [];
+    communityCache.warning = "X_BEARER_TOKEN is not configured on the server.";
+
+    return {
+      generatedAt: communityCache.generatedAt,
+      items: [],
+      warning: communityCache.warning
+    };
+  }
+
+  const params = new URLSearchParams({
+    query: X_QUERY,
+    max_results: String(clampCommunityLimit(limit)),
+    "tweet.fields": "created_at,public_metrics,author_id,lang",
+    expansions: "author_id",
+    "user.fields": "name,username,profile_image_url"
+  });
+
+  const requestUrl = `https://api.x.com/2/tweets/search/recent?${params.toString()}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "User-Agent": "alohomora/1.0"
+      }
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const detail = payload?.detail || payload?.title || "X API request failed.";
+      throw new Error(detail);
+    }
+
+    const items = mapXCommunityItems(payload);
+    communityCache.expiresAt = now + X_COMMUNITY_CACHE_TTL;
+    communityCache.generatedAt = new Date().toISOString();
+    communityCache.items = items;
+    communityCache.warning = null;
+
+    return {
+      generatedAt: communityCache.generatedAt,
+      items,
+      warning: null
+    };
+  } catch (error) {
+    const fallbackWarning = "Live X feed unavailable right now.";
+    return {
+      generatedAt: new Date().toISOString(),
+      items: communityCache.items || [],
+      warning: communityCache.items?.length ? fallbackWarning : `${fallbackWarning} ${error.message || ""}`.trim()
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -157,9 +571,13 @@ app.get("/community", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "community.html"));
 });
 
+app.get("/changelog", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "changelog.html"));
+});
+
 app.get("/api/news", async (req, res) => {
   try {
-    const limit = Number(req.query.limit || 80);
+    const limit = Number(req.query.limit || 120);
     const feed = await loadAllFeeds();
     res.json({
       generatedAt: new Date().toISOString(),
@@ -169,6 +587,40 @@ app.get("/api/news", async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: "Failed to load news feed." });
   }
+});
+
+app.get("/api/article-meta", async (req, res) => {
+  const articleUrl = normalizeSourceUrl(req.query.url);
+  if (!articleUrl) {
+    res.status(400).json({ error: "Invalid article URL." });
+    return;
+  }
+
+  const meta = await fetchArticleMeta(articleUrl);
+  res.json(meta);
+});
+
+app.get("/api/changelog", async (req, res) => {
+  const limit = Number(req.query.limit || 40);
+  const items = await loadChangelog(limit);
+  res.json({
+    generatedAt: new Date().toISOString(),
+    count: items.length,
+    items
+  });
+});
+
+app.get("/api/community", async (req, res) => {
+  const limit = clampCommunityLimit(req.query.limit);
+  const forceRefresh = req.query.refresh === "1";
+  const result = await fetchXCommunityFeed(limit, forceRefresh);
+
+  res.json({
+    generatedAt: result.generatedAt,
+    count: result.items.length,
+    warning: result.warning,
+    items: result.items
+  });
 });
 
 app.listen(PORT, () => {

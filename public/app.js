@@ -12,17 +12,43 @@ const template = document.getElementById("card-template");
 const feedToggle = document.getElementById("feedToggle");
 const liveFeedPanel = document.querySelector(".live-feed-panel");
 const quickTabs = Array.from(document.querySelectorAll(".quick-tab"));
+const detailsPanel = document.getElementById("detailsPanel");
+const detailsBody = document.getElementById("detailsBody");
+const detailsSourceLink = document.getElementById("detailsSourceLink");
+const closeDetailsBtn = document.getElementById("closeDetailsBtn");
 
 let rawItems = [];
 let filteredItems = [];
 let focusedItemId = null;
+let selectedItemId = null;
 let map = null;
 let markersLayer = null;
 
+const articleMetaCache = new Map();
 const severityOrder = { Critical: 4, High: 3, Medium: 2, Low: 1 };
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 function formatTime(dateString) {
   if (!dateString) return "Unknown time";
+  const date = new Date(dateString);
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function formatDayTime(dateString) {
+  if (!dateString) return "Unknown";
   const date = new Date(dateString);
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -86,8 +112,9 @@ function computeStats(items) {
 }
 
 function renderStats(items) {
-  const stats = computeStats(items);
+  if (!statsNode) return;
   statsNode.innerHTML = "";
+  const stats = computeStats(items);
 
   for (const stat of stats) {
     const el = document.createElement("article");
@@ -104,6 +131,7 @@ function createMapClusters(items) {
     if (!item.location) continue;
     const key = `${item.location.label}:${item.location.lat}:${item.location.lng}`;
     const current = buckets.get(key);
+
     if (!current) {
       buckets.set(key, {
         ...item.location,
@@ -124,24 +152,30 @@ function createMapClusters(items) {
   return Array.from(buckets.values());
 }
 
-function highlightCard(itemId) {
-  if (liveFeedPanel && feedToggle && liveFeedPanel.classList.contains("is-collapsed")) {
-    liveFeedPanel.classList.remove("is-collapsed");
-    feedToggle.innerHTML = "&#10094;";
-  }
+function getItemById(itemId) {
+  return rawItems.find((item) => item.id === itemId) || null;
+}
+
+function highlightCard(itemId, scroll = true) {
   focusedItemId = itemId;
+
   for (const card of feedNode.querySelectorAll(".live-item")) {
     card.classList.remove("is-focused");
   }
+
   const target = feedNode.querySelector(`.live-item[data-id="${CSS.escape(itemId)}"]`);
   if (!target) return;
   target.classList.add("is-focused");
-  target.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  if (scroll) {
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 }
 
 function renderMap(items) {
   initMap();
   markersLayer.clearLayers();
+
   const clusters = createMapClusters(items);
 
   for (const cluster of clusters) {
@@ -154,9 +188,9 @@ function renderMap(items) {
     });
 
     marker.bindPopup(
-      `<div class="map-popup"><h3>${cluster.label}</h3><p>${cluster.count} incident(s) • ${cluster.topSeverity}</p></div>`
+      `<div class="map-popup"><h3>${escapeHtml(cluster.label)}</h3><p>${cluster.count} incident(s) • ${escapeHtml(cluster.topSeverity)}</p></div>`
     );
-    marker.on("click", () => highlightCard(cluster.topItem.id));
+    marker.on("click", () => setSelectedIncident(cluster.topItem.id, { scroll: true, flyTo: false }));
     marker.addTo(markersLayer);
   }
 }
@@ -171,26 +205,130 @@ function renderFeed(items) {
 
   for (const item of items) {
     const clone = template.content.cloneNode(true);
-    const severity = item.severity.toLowerCase();
+    const severity = (item.severity || "Low").toLowerCase();
     const card = clone.querySelector(".live-item");
+    const titleNode = clone.querySelector(".title");
 
     card.dataset.id = item.id;
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Open details for ${item.title}`);
     card.classList.add(`live-${severity}`);
+
     if (focusedItemId === item.id) {
       card.classList.add("is-focused");
     }
 
     clone.querySelector(".severity").textContent = `S${severityOrder[item.severity] || 1}`;
     clone.querySelector(".severity").classList.add(`severity-${severity}`);
-    clone.querySelector(".category").textContent = item.category;
-    clone.querySelector(".source").textContent = item.source;
-    clone.querySelector(".place").textContent = item.location?.label || "Global";
+    clone.querySelector(".category").textContent = item.category || "General";
+    clone.querySelector(".source").textContent = item.source || "Unknown";
+    clone.querySelector(".place").textContent = item.location?.label
+      ? `${item.location.label}${item.location.type ? ` · ${item.location.type}` : ""}`
+      : "Global";
     clone.querySelector(".age").textContent = timeAgo(item.publishedAt);
-    clone.querySelector(".title").href = item.link;
-    clone.querySelector(".title").textContent = item.title;
+
+    titleNode.textContent = item.title;
+    titleNode.dataset.id = item.id;
 
     feedNode.appendChild(clone);
   }
+}
+
+function closeDetails() {
+  selectedItemId = null;
+  detailsPanel.classList.remove("is-open");
+  detailsBody.classList.add("is-empty");
+  detailsBody.innerHTML = "<p class='details-empty-text'>Select an incident to open details.</p>";
+  detailsSourceLink.hidden = true;
+}
+
+function renderDetails(item, meta = null) {
+  const severity = (item.severity || "Low").toLowerCase();
+  const locationLabel = item.location?.label
+    ? `${item.location.label}${item.location.type ? ` (${item.location.type})` : ""}`
+    : "Global";
+  const summary = (meta?.description || item.summary || "No summary available.").trim();
+  const image = meta?.image || item.image || null;
+
+  detailsPanel.classList.add("is-open");
+  detailsBody.classList.remove("is-empty");
+
+  if (item.link) {
+    detailsSourceLink.hidden = false;
+    detailsSourceLink.href = item.link;
+  } else {
+    detailsSourceLink.hidden = true;
+    detailsSourceLink.removeAttribute("href");
+  }
+
+  detailsBody.innerHTML = `
+    <article class="incident-details">
+      <div class="incident-tags">
+        <span class="badge category">${escapeHtml(item.category || "General")}</span>
+        <span class="badge severity severity-${severity}">S${severityOrder[item.severity] || 1}</span>
+      </div>
+      <h4 class="incident-title">${escapeHtml(item.title)}</h4>
+      <div class="incident-meta-row">
+        <span>${escapeHtml(timeAgo(item.publishedAt))}</span>
+        <span>${escapeHtml(locationLabel)}</span>
+      </div>
+      ${image ? `<div class="incident-image-wrap"><img src="${escapeHtml(image)}" alt="Incident article visual" class="incident-image" /></div>` : ""}
+      <section class="incident-section">
+        <h5>Summary</h5>
+        <p>${escapeHtml(summary)}</p>
+      </section>
+      <section class="incident-section">
+        <h5>Signals (1)</h5>
+        <div class="signal-card">
+          <div class="signal-row">
+            <span class="signal-source">${escapeHtml(item.source || "Source")}</span>
+            <span class="signal-time">${escapeHtml(formatDayTime(item.publishedAt))}</span>
+          </div>
+          <p>${escapeHtml(item.title)}</p>
+          ${item.link ? `<a class="signal-link" href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer">View source</a>` : ""}
+        </div>
+      </section>
+    </article>
+  `;
+}
+
+async function hydrateDetailsMeta(item) {
+  if (!item?.link || articleMetaCache.has(item.link)) {
+    return articleMetaCache.get(item?.link) || null;
+  }
+
+  try {
+    const response = await fetch(`/api/article-meta?url=${encodeURIComponent(item.link)}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    articleMetaCache.set(item.link, data);
+    return data;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function setSelectedIncident(itemId, options = {}) {
+  const { scroll = true, flyTo = true } = options;
+  const item = getItemById(itemId);
+  if (!item) return;
+
+  selectedItemId = item.id;
+  highlightCard(item.id, scroll);
+
+  if (flyTo && item.location && map) {
+    map.flyTo([item.location.lat, item.location.lng], Math.max(map.getZoom(), 4), {
+      duration: 0.55
+    });
+  }
+
+  renderDetails(item, articleMetaCache.get(item.link) || null);
+  const meta = await hydrateDetailsMeta(item);
+
+  if (!meta) return;
+  if (selectedItemId !== item.id) return;
+  renderDetails(item, meta);
 }
 
 function applyFilters() {
@@ -200,15 +338,15 @@ function applyFilters() {
 
   filteredItems = rawItems.filter((item) => {
     const matchesSeverity = severity === "ALL" || item.severity === severity;
-    const fullText = `${item.title} ${item.summary} ${item.category} ${item.source}`.toLowerCase();
+    const fullText = `${item.title || ""} ${item.summary || ""} ${item.category || ""} ${item.source || ""}`.toLowerCase();
     const locationText = (item.location?.label || "").toLowerCase();
     const matchesQuery = !query || fullText.includes(query);
     const matchesLocation = !locationQuery || locationText.includes(locationQuery);
     return matchesSeverity && matchesQuery && matchesLocation;
   });
 
-  if (focusedItemId && !filteredItems.some((item) => item.id === focusedItemId)) {
-    focusedItemId = null;
+  if (selectedItemId && !filteredItems.some((item) => item.id === selectedItemId)) {
+    closeDetails();
   }
 
   if (incidentCountNode) {
@@ -219,6 +357,10 @@ function applyFilters() {
   renderStats(filteredItems);
   renderMap(filteredItems);
   renderFeed(filteredItems);
+
+  if (selectedItemId) {
+    highlightCard(selectedItemId, false);
+  }
 }
 
 async function loadNews() {
@@ -227,15 +369,22 @@ async function loadNews() {
   refreshStateNode.textContent = "Refreshing...";
 
   try {
-    const res = await fetch("/api/news?limit=140");
-    if (!res.ok) throw new Error("Feed request failed.");
-    const data = await res.json();
+    const response = await fetch("/api/news?limit=140");
+    if (!response.ok) throw new Error("Feed request failed.");
+
+    const data = await response.json();
     rawItems = data.items || [];
+
     lastUpdatedNode.textContent = `Updated ${formatTime(data.generatedAt)} • ${data.count} items`;
     refreshStateNode.textContent = `Synced ${formatTime(data.generatedAt)}`;
+
     applyFilters();
+
+    if (selectedItemId && rawItems.some((item) => item.id === selectedItemId)) {
+      setSelectedIncident(selectedItemId, { scroll: false, flyTo: false });
+    }
   } catch (error) {
-    feedNode.innerHTML = "<p>Failed to load feed. Try again in a moment.</p>";
+    feedNode.innerHTML = "<p class='feed-empty'>Failed to load feed. Try again in a moment.</p>";
     refreshStateNode.textContent = "Feed unavailable";
   } finally {
     refreshBtn.disabled = false;
@@ -247,15 +396,19 @@ refreshBtn.addEventListener("click", loadNews);
 searchInput.addEventListener("input", applyFilters);
 locationFilterInput.addEventListener("input", applyFilters);
 severityFilter.addEventListener("change", applyFilters);
+
 if (clearFiltersBtn) {
   clearFiltersBtn.addEventListener("click", () => {
     searchInput.value = "";
     locationFilterInput.value = "";
     severityFilter.value = "ALL";
     focusedItemId = null;
+    selectedItemId = null;
     applyFilters();
+    closeDetails();
   });
 }
+
 if (feedToggle && liveFeedPanel) {
   feedToggle.addEventListener("click", () => {
     liveFeedPanel.classList.toggle("is-collapsed");
@@ -265,18 +418,27 @@ if (feedToggle && liveFeedPanel) {
   });
 }
 
+if (closeDetailsBtn) {
+  closeDetailsBtn.addEventListener("click", () => {
+    closeDetails();
+    for (const card of feedNode.querySelectorAll(".live-item")) {
+      card.classList.remove("is-focused");
+    }
+  });
+}
+
 feedNode.addEventListener("click", (event) => {
   const card = event.target.closest(".live-item");
   if (!card) return;
-  const item = filteredItems.find((entry) => entry.id === card.dataset.id);
-  if (!item) return;
+  setSelectedIncident(card.dataset.id, { scroll: false, flyTo: true });
+});
 
-  highlightCard(item.id);
-  if (item.location && map) {
-    map.flyTo([item.location.lat, item.location.lng], Math.max(map.getZoom(), 4), {
-      duration: 0.55
-    });
-  }
+feedNode.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const card = event.target.closest(".live-item");
+  if (!card) return;
+  event.preventDefault();
+  setSelectedIncident(card.dataset.id, { scroll: false, flyTo: true });
 });
 
 document.addEventListener("keydown", (event) => {
@@ -293,13 +455,22 @@ document.addEventListener("keydown", (event) => {
     searchInput.focus();
     searchInput.select();
   }
+
+  if (event.key === "Escape" && detailsPanel.classList.contains("is-open")) {
+    closeDetails();
+  }
 });
 
 quickTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
     const route = tab.dataset.route;
     if (route === "community") {
-      window.location.href = "./community.html";
+      window.location.href = "./community";
+      return;
+    }
+
+    if (route === "changelog") {
+      window.location.href = "./changelog";
       return;
     }
 
@@ -310,6 +481,7 @@ quickTabs.forEach((tab) => {
   });
 });
 
+closeDetails();
 initMap();
 loadNews();
 setInterval(loadNews, 1000 * 60 * 5);

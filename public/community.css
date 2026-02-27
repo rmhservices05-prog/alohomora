@@ -333,6 +333,7 @@ body {
   gap: 6px;
   font-size: 0.8rem;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .action:hover {

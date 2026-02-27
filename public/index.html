@@ -25,12 +25,13 @@
         <div class="sidebar-top">
           <div class="brand-wrap">
             <div class="brand-logo" aria-label="HOMORA">
-              <img src="./alohomora-logo.png" alt="ALOHOMORA" class="brand-logo-image" />
+              <img src="./logo-final.png" alt="ALOHOMORA" class="brand-logo-image" />
             </div>
           </div>
           <nav class="quick-nav" aria-label="Primary">
             <button type="button" class="quick-tab is-active" data-route="live">Live</button>
             <button type="button" class="quick-tab" data-route="community">Community</button>
+            <button type="button" class="quick-tab" data-route="changelog">Changelog</button>
           </nav>
         </div>
 
@@ -53,7 +54,6 @@
           <button id="clearFilters" class="ghost-btn">Reset filters</button>
         </section>
 
-        <section class="stats" id="stats"></section>
       </aside>
 
       <section class="workspace">
@@ -98,6 +98,26 @@
                 </div>
                 <div id="feed" class="live-feed-list"></div>
               </aside>
+              <aside class="details-panel" id="detailsPanel" aria-live="polite">
+                <div class="details-head">
+                  <h3>Details</h3>
+                  <div class="details-head-actions">
+                    <a id="detailsSourceLink" class="details-icon-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open source article">
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M10 14 14 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                        <path d="M8.5 17.5h-2A3.5 3.5 0 0 1 3 14v-4A3.5 3.5 0 0 1 6.5 6h4A3.5 3.5 0 0 1 14 9.5v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                        <path d="M13.5 6.5h2A3.5 3.5 0 0 1 19 10v4a3.5 3.5 0 0 1-3.5 3.5h-4A3.5 3.5 0 0 1 8 14v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                      </svg>
+                    </a>
+                    <button id="closeDetailsBtn" class="details-icon-btn" type="button" aria-label="Close details">
+                      &#10005;
+                    </button>
+                  </div>
+                </div>
+                <div id="detailsBody" class="details-body is-empty">
+                  <p class="details-empty-text">Select an incident to open details.</p>
+                </div>
+              </aside>
             </div>
           </section>
         </div>
@@ -113,7 +133,7 @@
           </div>
           <span class="age"></span>
         </div>
-        <a class="title" target="_blank" rel="noopener noreferrer"></a>
+        <button class="title" type="button"></button>
         <p class="meta">
           <span class="place"></span>
           <span class="source"></span>

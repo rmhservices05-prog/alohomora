@@ -17,11 +17,12 @@
     <main class="community-shell">
       <aside class="left-rail">
         <a class="brand" href="./index.html">
-          <img src="./alohomora-logo.png" alt="ALOHOMORA" class="brand-logo-image" />
+          <img src="./logo-final.png" alt="ALOHOMORA" class="brand-logo-image" />
         </a>
         <nav class="rail-nav">
           <a class="rail-link" href="./index.html">Live</a>
           <a class="rail-link is-active" href="./community.html">Community</a>
+          <a class="rail-link" href="./changelog">Changelog</a>
         </nav>
         <button id="newPostBtn" class="post-cta" type="button">New Post</button>
       </aside>
@@ -30,7 +31,7 @@
         <header class="timeline-header">
           <div>
             <h1>Community</h1>
-            <p>Threat chatter, analysis, and operator notes.</p>
+            <p id="communityState">Loading live X hashtag feed...</p>
           </div>
           <div class="header-tabs">
             <button id="latestTab" class="header-tab is-active" type="button">Latest</button>
@@ -97,6 +98,7 @@
             <button class="action reply-btn" type="button">Reply <span class="count"></span></button>
             <button class="action repost-btn" type="button">Repost <span class="count"></span></button>
             <button class="action like-btn" type="button">Like <span class="count"></span></button>
+            <a class="action source-link" href="#" target="_blank" rel="noopener noreferrer" hidden>View on X</a>
           </footer>
         </div>
       </article>
