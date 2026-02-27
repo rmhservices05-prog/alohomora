@@ -8,6 +8,8 @@ const locationFilterInput = document.getElementById("locationFilter");
 const severityFilter = document.getElementById("severityFilter");
 const clearFiltersBtn = document.getElementById("clearFilters");
 const incidentCountNode = document.getElementById("incidentCount");
+const marketsRowsNode = document.getElementById("marketsRows");
+const marketsStateNode = document.getElementById("marketsState");
 const template = document.getElementById("card-template");
 const feedToggle = document.getElementById("feedToggle");
 const liveFeedPanel = document.querySelector(".live-feed-panel");
@@ -23,9 +25,14 @@ let focusedItemId = null;
 let selectedItemId = null;
 let map = null;
 let markersLayer = null;
+let marketsGeneratedAt = null;
+let marketsWarning = null;
+let marketsLoading = false;
 
 const articleMetaCache = new Map();
 const severityOrder = { Critical: 4, High: 3, Medium: 2, Low: 1 };
+const MARKET_SOURCE_LIMIT = 18;
+const MARKET_REFRESH_INTERVAL = 1000 * 30;
 
 function escapeHtml(value) {
   return String(value || "")
@@ -71,6 +78,47 @@ function timeAgo(dateString) {
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.floor(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function shortTimeAgo(dateString) {
+  if (!dateString) return "Unknown";
+  const then = new Date(dateString).getTime();
+  if (!Number.isFinite(then)) return "Unknown";
+  const seconds = Math.max(1, Math.floor((Date.now() - then) / 1000));
+  if (seconds < 45) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function formatMarketPrice(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: numeric < 10 ? 2 : 0,
+    maximumFractionDigits: numeric < 10 ? 2 : 2
+  }).format(numeric);
+}
+
+function formatMarketChange(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${numeric.toFixed(2)}%`;
+}
+
+function updateMarketsState() {
+  if (!marketsStateNode) return;
+  if (!marketsGeneratedAt) {
+    marketsStateNode.textContent = "Loading...";
+    return;
+  }
+
+  const age = shortTimeAgo(marketsGeneratedAt);
+  marketsStateNode.textContent = marketsWarning ? `${age} • delayed` : age;
 }
 
 function getMarkerColor(severity) {
@@ -363,6 +411,88 @@ function applyFilters() {
   }
 }
 
+function renderMarkets(items = []) {
+  if (!marketsRowsNode) return;
+  marketsRowsNode.innerHTML = "";
+  marketsRowsNode.classList.remove("is-animated");
+  marketsRowsNode.style.removeProperty("--marquee-duration");
+
+  if (!items.length) {
+    marketsRowsNode.innerHTML = "<div class='markets-empty'>Market data unavailable.</div>";
+    return;
+  }
+
+  const sorted = [...items].sort((a, b) => {
+    const aChange = Number(a.changePercent);
+    const bChange = Number(b.changePercent);
+    const aScore = Number.isFinite(aChange) ? Math.abs(aChange) : -1;
+    const bScore = Number.isFinite(bChange) ? Math.abs(bChange) : -1;
+    return bScore - aScore;
+  });
+
+  const selected = sorted.slice(0, MARKET_SOURCE_LIMIT);
+  const rows = [];
+
+  for (const item of selected) {
+    const change = Number(item.changePercent);
+    const direction = !Number.isFinite(change) || change === 0 ? "flat" : change > 0 ? "up" : "down";
+    const trend = direction === "up" ? "↗" : direction === "down" ? "↘" : "•";
+
+    rows.push(`
+      <article class="markets-row">
+        <span class="markets-symbol">
+          <span class="markets-trend">${trend}</span>
+          <span class="markets-ticker">${escapeHtml(item.symbol || "-")}</span>
+        </span>
+        <span class="markets-price">${escapeHtml(formatMarketPrice(item.price))}</span>
+        <span class="markets-change ${direction}">${escapeHtml(formatMarketChange(item.changePercent))}</span>
+      </article>
+    `);
+  }
+
+  if (!rows.length) {
+    marketsRowsNode.innerHTML = "<div class='markets-empty'>Market data unavailable.</div>";
+    return;
+  }
+
+  const shouldAnimate = rows.length > 8;
+  marketsRowsNode.innerHTML = shouldAnimate ? `${rows.join("")}${rows.join("")}` : rows.join("");
+
+  if (shouldAnimate) {
+    const durationSeconds = Math.max(16, rows.length * 1.8);
+    marketsRowsNode.style.setProperty("--marquee-duration", `${durationSeconds}s`);
+    marketsRowsNode.classList.add("is-animated");
+  }
+}
+
+async function loadMarkets(options = {}) {
+  if (!marketsRowsNode || !marketsStateNode) return;
+  if (marketsLoading) return;
+
+  const { force = false } = options;
+  marketsLoading = true;
+
+  try {
+    const cacheBuster = Date.now();
+    const endpoint = force ? `/api/stocks?refresh=1&t=${cacheBuster}` : `/api/stocks?t=${cacheBuster}`;
+    const response = await fetch(endpoint);
+    if (!response.ok) throw new Error("Markets request failed.");
+
+    const data = await response.json();
+    renderMarkets(data.items || []);
+    marketsGeneratedAt = data.generatedAt || new Date().toISOString();
+    marketsWarning = data.warning || null;
+    updateMarketsState();
+  } catch (error) {
+    renderMarkets([]);
+    marketsGeneratedAt = null;
+    marketsWarning = null;
+    marketsStateNode.textContent = "Market feed unavailable";
+  } finally {
+    marketsLoading = false;
+  }
+}
+
 async function loadNews() {
   refreshBtn.disabled = true;
   refreshBtn.textContent = "Refreshing...";
@@ -464,11 +594,6 @@ document.addEventListener("keydown", (event) => {
 quickTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
     const route = tab.dataset.route;
-    if (route === "community") {
-      window.location.href = "./community";
-      return;
-    }
-
     if (route === "changelog") {
       window.location.href = "./changelog";
       return;
@@ -484,4 +609,7 @@ quickTabs.forEach((tab) => {
 closeDetails();
 initMap();
 loadNews();
+loadMarkets();
 setInterval(loadNews, 1000 * 60 * 5);
+setInterval(() => loadMarkets({ force: true }), MARKET_REFRESH_INTERVAL);
+setInterval(updateMarketsState, 1000);

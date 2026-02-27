@@ -14,7 +14,6 @@ Dashboard that aggregates cybersecurity headlines from major RSS sources, classi
    npm run dev
    ```
 4. Open `http://localhost:3000`.
-5. Open `http://localhost:3000/community.html` for the Community feed.
 
 ## Deploy (Render + secatr DNS)
 
@@ -45,9 +44,3 @@ Dashboard that aggregates cybersecurity headlines from major RSS sources, classi
   - Severity filter
   - Click map marker to focus related story
   - Auto-refresh every 5 minutes
-- Community page (`/community.html`) with:
-  - Twitter-style timeline layout
-  - Post composer (280 chars)
-  - Like/repost/reply actions
-  - Latest/Top sorting
-  - Local persistence for user posts

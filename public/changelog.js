@@ -143,11 +143,6 @@ quickTabs.forEach((tab) => {
       return;
     }
 
-    if (route === "community") {
-      window.location.href = "./community";
-      return;
-    }
-
     if (route === "changelog") {
       for (const node of quickTabs) {
         node.classList.remove("is-active");

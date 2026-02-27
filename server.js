@@ -24,12 +24,41 @@ const FEEDS = [
   { name: "GBHackers", url: "https://gbhackers.com/feed/" }
 ];
 
-const X_QUERY =
-  process.env.X_SEARCH_QUERY ||
-  "(#cybersecurity OR #infosec OR #threatintel OR #ransomware OR #malware OR #cve OR #zeroday OR #cyberattack) lang:en -is:retweet -is:reply";
-const X_COMMUNITY_MAX_RESULTS = 100;
-const X_COMMUNITY_DEFAULT_LIMIT = 40;
-const X_COMMUNITY_CACHE_TTL = 1000 * 60;
+const STOCK_SYMBOLS = [
+  { symbol: "CRWD", name: "CrowdStrike" },
+  { symbol: "PANW", name: "Palo Alto Networks" },
+  { symbol: "FTNT", name: "Fortinet" },
+  { symbol: "ZS", name: "Zscaler" },
+  { symbol: "OKTA", name: "Okta" },
+  { symbol: "CYBR", name: "CyberArk" },
+  { symbol: "S", name: "SentinelOne" },
+  { symbol: "CHKP", name: "Check Point" },
+  { symbol: "TENB", name: "Tenable" },
+  { symbol: "RPD", name: "Rapid7" },
+  { symbol: "VRNS", name: "Varonis" },
+  { symbol: "QLYS", name: "Qualys" },
+  { symbol: "AKAM", name: "Akamai" },
+  { symbol: "FFIV", name: "F5" },
+  { symbol: "JNPR", name: "Juniper Networks" },
+  { symbol: "GEN", name: "Gen Digital" },
+  { symbol: "NET", name: "Cloudflare" },
+  { symbol: "RDWR", name: "Radware" },
+  { symbol: "CSCO", name: "Cisco" },
+  { symbol: "ANET", name: "Arista Networks" },
+  { symbol: "AVGO", name: "Broadcom" },
+  { symbol: "LDOS", name: "Leidos" },
+  { symbol: "BAH", name: "Booz Allen" },
+  { symbol: "CACI", name: "CACI" },
+  { symbol: "SAIC", name: "SAIC" },
+  { symbol: "PLTR", name: "Palantir" },
+  { symbol: "BBAI", name: "BigBear.ai" },
+  { symbol: "CIBR", name: "CIBR ETF" },
+  { symbol: "BUG", name: "BUG ETF" },
+  { symbol: "IHAK", name: "IHAK ETF" },
+  { symbol: "WCBR", name: "WCBR ETF" },
+  { symbol: "HACK", name: "HACK ETF" }
+];
+const STOCK_CACHE_TTL = 1000 * 20;
 
 const categoryRules = [
   { key: "Ransomware", words: ["ransomware", "extortion", "locker"] },
@@ -160,7 +189,7 @@ const locationRules = [
 
 const articleMetaCache = new Map();
 const ARTICLE_META_TTL = 1000 * 60 * 60 * 6;
-const communityCache = {
+const stockCache = {
   expiresAt: 0,
   items: [],
   warning: null,
@@ -446,111 +475,170 @@ function loadChangelog(limit = 40) {
   });
 }
 
-function clampCommunityLimit(value) {
-  const parsed = Number(value || X_COMMUNITY_DEFAULT_LIMIT);
-  if (!Number.isFinite(parsed) || parsed < 1) return X_COMMUNITY_DEFAULT_LIMIT;
-  return Math.min(parsed, X_COMMUNITY_MAX_RESULTS);
-}
+function mapStockQuotes(payload) {
+  const quoteBySymbol = new Map(
+    (payload?.quoteResponse?.result || [])
+      .filter((quote) => quote && quote.symbol)
+      .map((quote) => [String(quote.symbol).toUpperCase(), quote])
+  );
 
-function normalizeCommunityText(value = "") {
-  return String(value || "").replace(/\s+/g, " ").trim();
-}
-
-function mapXCommunityItems(payload) {
-  const users = new Map((payload?.includes?.users || []).map((user) => [user.id, user]));
-  const tweets = Array.isArray(payload?.data) ? payload.data : [];
-
-  return tweets
-    .map((tweet) => {
-      const user = users.get(tweet.author_id) || {};
-      const username = user.username || "unknown";
-
-      return {
-        id: `x:${tweet.id}`,
-        author: user.name || username,
-        handle: `@${username}`,
-        body: normalizeCommunityText(tweet.text || ""),
-        createdAt: tweet.created_at || null,
-        likes: Number(tweet.public_metrics?.like_count || 0),
-        replies: Number(tweet.public_metrics?.reply_count || 0),
-        reposts: Number(tweet.public_metrics?.retweet_count || 0),
-        source: "x",
-        sourceUrl: `https://x.com/${username}/status/${tweet.id}`
-      };
-    })
-    .filter((item) => item.body.length > 0);
-}
-
-async function fetchXCommunityFeed(limit = X_COMMUNITY_DEFAULT_LIMIT, forceRefresh = false) {
-  const now = Date.now();
-  if (!forceRefresh && communityCache.expiresAt > now) {
-    return {
-      generatedAt: communityCache.generatedAt || new Date().toISOString(),
-      items: communityCache.items,
-      warning: communityCache.warning
-    };
-  }
-
-  const token = process.env.X_BEARER_TOKEN;
-  if (!token) {
-    communityCache.expiresAt = now + X_COMMUNITY_CACHE_TTL;
-    communityCache.generatedAt = new Date().toISOString();
-    communityCache.items = [];
-    communityCache.warning = "X_BEARER_TOKEN is not configured on the server.";
+  return STOCK_SYMBOLS.map(({ symbol, name }) => {
+    const quote = quoteBySymbol.get(symbol) || {};
 
     return {
-      generatedAt: communityCache.generatedAt,
-      items: [],
-      warning: communityCache.warning
+      symbol,
+      name,
+      price: Number.isFinite(Number(quote.regularMarketPrice)) ? Number(quote.regularMarketPrice) : null,
+      changePercent: Number.isFinite(Number(quote.regularMarketChangePercent))
+        ? Number(quote.regularMarketChangePercent)
+        : null
     };
-  }
-
-  const params = new URLSearchParams({
-    query: X_QUERY,
-    max_results: String(clampCommunityLimit(limit)),
-    "tweet.fields": "created_at,public_metrics,author_id,lang",
-    expansions: "author_id",
-    "user.fields": "name,username,profile_image_url"
   });
+}
 
-  const requestUrl = `https://api.x.com/2/tweets/search/recent?${params.toString()}`;
+function parseNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeStooqSymbol(symbol) {
+  return `${String(symbol || "").toLowerCase()}.us`;
+}
+
+async function fetchStooqQuote(symbol) {
+  const sourceSymbol = normalizeStooqSymbol(symbol);
+  const requestUrl = `https://stooq.com/q/l/?s=${encodeURIComponent(sourceSymbol)}&f=sd2t2cp&h&e=csv`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), 9000);
 
   try {
     const response = await fetch(requestUrl, {
       method: "GET",
       signal: controller.signal,
       headers: {
-        Authorization: `Bearer ${token}`,
         "User-Agent": "alohomora/1.0"
       }
     });
 
+    if (!response.ok) return null;
+    const csv = await response.text();
+    const lines = String(csv || "")
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+
+    if (lines.length < 2) return null;
+
+    const values = lines[1].split(",");
+    if (values.length < 5) return null;
+
+    const price = parseNumber(values[3]);
+    const prev = parseNumber(values[4]);
+    if (price === null) return null;
+
+    const changePercent = prev ? ((price - prev) / prev) * 100 : null;
+
+    return {
+      symbol,
+      price,
+      changePercent
+    };
+  } catch (error) {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchStooqStockQuotes() {
+  const mapped = await Promise.all(
+    STOCK_SYMBOLS.map(async ({ symbol, name }) => {
+      const quote = await fetchStooqQuote(symbol);
+      return {
+        symbol,
+        name,
+        price: quote?.price ?? null,
+        changePercent: quote?.changePercent ?? null
+      };
+    })
+  );
+
+  return mapped;
+}
+
+function emptyStockQuotes() {
+  return STOCK_SYMBOLS.map(({ symbol, name }) => ({
+    symbol,
+    name,
+    price: null,
+    changePercent: null
+  }));
+}
+
+async function fetchStockQuotes(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && stockCache.expiresAt > now) {
+    return {
+      generatedAt: stockCache.generatedAt || new Date().toISOString(),
+      items: stockCache.items,
+      warning: stockCache.warning
+    };
+  }
+
+  const symbols = STOCK_SYMBOLS.map((entry) => entry.symbol).join(",");
+  const requestUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9000);
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "alohomora/1.0"
+      }
+    });
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      const detail = payload?.detail || payload?.title || "X API request failed.";
-      throw new Error(detail);
+      throw new Error(payload?.quoteResponse?.error?.description || "Stock quote request failed.");
     }
 
-    const items = mapXCommunityItems(payload);
-    communityCache.expiresAt = now + X_COMMUNITY_CACHE_TTL;
-    communityCache.generatedAt = new Date().toISOString();
-    communityCache.items = items;
-    communityCache.warning = null;
+    const items = mapStockQuotes(payload);
+    if (!items.some((item) => item.price !== null)) {
+      throw new Error("No quotes returned.");
+    }
+
+    stockCache.expiresAt = now + STOCK_CACHE_TTL;
+    stockCache.generatedAt = new Date().toISOString();
+    stockCache.items = items;
+    stockCache.warning = null;
 
     return {
-      generatedAt: communityCache.generatedAt,
+      generatedAt: stockCache.generatedAt,
       items,
       warning: null
     };
   } catch (error) {
-    const fallbackWarning = "Live X feed unavailable right now.";
+    const fallbackItems = await fetchStooqStockQuotes();
+    if (fallbackItems.some((item) => item.price !== null)) {
+      stockCache.expiresAt = now + STOCK_CACHE_TTL;
+      stockCache.generatedAt = new Date().toISOString();
+      stockCache.items = fallbackItems;
+      stockCache.warning = "Delayed market data (~15m)";
+
+      return {
+        generatedAt: stockCache.generatedAt,
+        items: stockCache.items,
+        warning: stockCache.warning
+      };
+    }
+
+    const fallbackWarning = "Live market feed unavailable";
     return {
       generatedAt: new Date().toISOString(),
-      items: communityCache.items || [],
-      warning: communityCache.items?.length ? fallbackWarning : `${fallbackWarning} ${error.message || ""}`.trim()
+      items: stockCache.items?.length ? stockCache.items : emptyStockQuotes(),
+      warning: stockCache.items?.length ? fallbackWarning : `${fallbackWarning}: ${error.message || ""}`.trim()
     };
   } finally {
     clearTimeout(timeout);
@@ -565,10 +653,6 @@ app.get("/healthz", (_req, res) => {
 
 app.get("/", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
-});
-
-app.get("/community", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "community.html"));
 });
 
 app.get("/changelog", (_req, res) => {
@@ -610,10 +694,9 @@ app.get("/api/changelog", async (req, res) => {
   });
 });
 
-app.get("/api/community", async (req, res) => {
-  const limit = clampCommunityLimit(req.query.limit);
+app.get("/api/stocks", async (req, res) => {
   const forceRefresh = req.query.refresh === "1";
-  const result = await fetchXCommunityFeed(limit, forceRefresh);
+  const result = await fetchStockQuotes(forceRefresh);
 
   res.json({
     generatedAt: result.generatedAt,

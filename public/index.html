@@ -30,7 +30,6 @@
           </div>
           <nav class="quick-nav" aria-label="Primary">
             <button type="button" class="quick-tab is-active" data-route="live">Live</button>
-            <button type="button" class="quick-tab" data-route="community">Community</button>
             <button type="button" class="quick-tab" data-route="changelog">Changelog</button>
           </nav>
         </div>
@@ -52,6 +51,28 @@
             </select>
           </label>
           <button id="clearFilters" class="ghost-btn">Reset filters</button>
+        </section>
+
+        <section class="markets-card" aria-labelledby="marketsTitle">
+          <div class="markets-head">
+            <div class="markets-title-row">
+              <span class="markets-currency" aria-hidden="true">$</span>
+              <h2 id="marketsTitle" class="markets-title">Markets</h2>
+              <span id="marketsState" class="markets-state">Loading...</span>
+            </div>
+          </div>
+          <div class="markets-table-wrap">
+            <div class="markets-table-head" role="presentation">
+              <span>Symbol</span>
+              <span>Price</span>
+              <span>Chg</span>
+            </div>
+            <div class="markets-viewport">
+              <div id="marketsRows" class="markets-track" aria-live="polite">
+                <div class="markets-empty">Loading market data...</div>
+              </div>
+            </div>
+          </div>
         </section>
 
       </aside>
