@@ -149,6 +149,14 @@ app.get("/healthz", (_req, res) => {
   res.status(200).json({ status: "ok", service: "alohomora" });
 });
 
+app.get("/", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+app.get("/community", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "community.html"));
+});
+
 app.get("/api/news", async (req, res) => {
   try {
     const limit = Number(req.query.limit || 80);
