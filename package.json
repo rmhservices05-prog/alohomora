@@ -1,7 +1,7 @@
 {
-  "name": "alohomora",
+  "name": "glass",
   "version": "1.0.0",
-  "description": "Alohomora threat intelligence dashboard",
+  "description": "Glass technology intelligence dashboard",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Alohomora</title>
+    <title>Glass</title>
+    <link rel="icon" type="image/png" href="./Glass.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -24,8 +25,8 @@
       <aside class="sidebar">
         <div class="sidebar-top">
           <div class="brand-wrap">
-            <div class="brand-logo" aria-label="HOMORA">
-              <img src="./logo-final.png" alt="ALOHOMORA" class="brand-logo-image" />
+            <div class="brand-logo" aria-label="GLASS">
+              <img src="./Glass.png" alt="GLASS" class="brand-logo-image" />
             </div>
           </div>
           <nav class="quick-nav" aria-label="Primary">
@@ -41,10 +42,9 @@
             <input id="locationFilter" type="search" placeholder="Filter location (e.g. Japan)" />
           </label>
           <label class="filter-field filter-field--small">
-            <span>Severity</span>
-            <select id="severityFilter">
+            <span>Impact</span>
+            <select id="impactFilter">
               <option value="ALL">All</option>
-              <option value="Critical">Critical</option>
               <option value="High">High</option>
               <option value="Medium">Medium</option>
               <option value="Low">Low</option>
@@ -56,7 +56,6 @@
         <section class="markets-card" aria-labelledby="marketsTitle">
           <div class="markets-head">
             <div class="markets-title-row">
-              <span class="markets-currency" aria-hidden="true">$</span>
               <h2 id="marketsTitle" class="markets-title">Markets</h2>
               <span id="marketsState" class="markets-state">Loading...</span>
             </div>
@@ -75,6 +74,18 @@
           </div>
         </section>
 
+        <div class="sidebar-footer">
+          <a
+            class="donate-btn"
+            href="https://donate.stripe.com/fZu3cwbgD8uMao46mUf7i0a"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span class="donate-heart" aria-hidden="true">&#10084;</span>
+            <span>Donate</span>
+          </a>
+        </div>
+
       </aside>
 
       <section class="workspace">
@@ -86,7 +97,7 @@
                 <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
               </svg>
             </span>
-            <input id="search" type="search" placeholder="Search incidents, CVEs, threat actors..." />
+            <input id="search" type="search" placeholder="Search AI, MedTech, DefenceTech, chips, cloud..." />
           </label>
           <div class="top-actions">
             <span id="refreshState">Refreshing...</span>
@@ -97,12 +108,12 @@
         <div class="workspace-scroll">
           <section class="panel world-panel">
             <div class="panel-head">
-              <h2>Global cyber situation</h2>
+              <h2>Global technology signal map</h2>
               <div class="legend">
-                <span id="incidentCount">0 live events</span>
-                <span><i class="dot critical"></i>High</span>
-                <span><i class="dot medium"></i>Elevated</span>
-                <span><i class="dot low"></i>Low</span>
+                <span id="eventCount">0 live events</span>
+                <span><i class="dot high"></i>High impact</span>
+                <span><i class="dot medium"></i>Medium impact</span>
+                <span><i class="dot low"></i>Low impact</span>
               </div>
             </div>
             <div class="map-wrap">
@@ -130,13 +141,24 @@
                         <path d="M13.5 6.5h2A3.5 3.5 0 0 1 19 10v4a3.5 3.5 0 0 1-3.5 3.5h-4A3.5 3.5 0 0 1 8 14v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
                       </svg>
                     </a>
+                    <button id="shareOnXBtn" class="details-share-btn" type="button" aria-label="Share this event on X">
+                      Share on X
+                    </button>
+                    <button
+                      id="shareOnLinkedInBtn"
+                      class="details-share-btn"
+                      type="button"
+                      aria-label="Share this event on LinkedIn"
+                    >
+                      Share on LinkedIn
+                    </button>
                     <button id="closeDetailsBtn" class="details-icon-btn" type="button" aria-label="Close details">
                       &#10005;
                     </button>
                   </div>
                 </div>
                 <div id="detailsBody" class="details-body is-empty">
-                  <p class="details-empty-text">Select an incident to open details.</p>
+                  <p class="details-empty-text">Select an event to open details.</p>
                 </div>
               </aside>
             </div>
@@ -150,7 +172,7 @@
         <div class="live-item-top">
           <div class="chip-row">
             <span class="badge category"></span>
-            <span class="badge severity"></span>
+            <span class="badge impact"></span>
           </div>
           <span class="age"></span>
         </div>

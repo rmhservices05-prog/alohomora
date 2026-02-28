@@ -7,21 +7,27 @@ const app = express();
 const parser = new Parser({
   timeout: 12000,
   headers: {
-    "User-Agent": "alohomora/1.0"
+    "User-Agent": "glass/1.0"
   }
 });
 const PORT = process.env.PORT || 3000;
+const NEWS_RETENTION_MS = 1000 * 60 * 60 * 24 * 14;
 
 const FEEDS = [
-  { name: "The Hacker News", url: "https://feeds.feedburner.com/TheHackersNews" },
-  { name: "BleepingComputer", url: "https://www.bleepingcomputer.com/feed/" },
-  { name: "Krebs on Security", url: "https://krebsonsecurity.com/feed/" },
-  { name: "SecurityWeek", url: "https://www.securityweek.com/feed/" },
-  { name: "Dark Reading", url: "https://www.darkreading.com/rss.xml" },
-  { name: "CISA Alerts", url: "https://www.cisa.gov/cybersecurity-advisories/all.xml" },
+  { name: "TechCrunch AI", url: "https://techcrunch.com/category/artificial-intelligence/feed/" },
+  { name: "VentureBeat AI", url: "https://venturebeat.com/ai/feed/" },
+  { name: "MIT Technology Review", url: "https://www.technologyreview.com/feed/" },
+  { name: "The Verge", url: "https://www.theverge.com/rss/index.xml" },
+  { name: "Ars Technica", url: "http://feeds.arstechnica.com/arstechnica/index" },
+  { name: "IEEE Spectrum", url: "https://spectrum.ieee.org/rss/fulltext" },
+  { name: "Fierce Biotech", url: "https://www.fiercebiotech.com/rss/xml" },
+  { name: "Medgadget", url: "https://www.medgadget.com/feed" },
+  { name: "MobiHealthNews", url: "https://www.mobihealthnews.com/rss.xml" },
+  { name: "Defense One", url: "https://www.defenseone.com/rss/all/" },
+  { name: "Defense News", url: "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml" },
+  { name: "Breaking Defense", url: "https://breakingdefense.com/feed/" },
   { name: "The Record", url: "https://therecord.media/feed" },
-  { name: "CyberScoop", url: "https://cyberscoop.com/feed/" },
-  { name: "GBHackers", url: "https://gbhackers.com/feed/" }
+  { name: "SecurityWeek", url: "https://www.securityweek.com/feed/" }
 ];
 
 const STOCK_SYMBOLS = [
@@ -52,6 +58,18 @@ const STOCK_SYMBOLS = [
   { symbol: "SAIC", name: "SAIC" },
   { symbol: "PLTR", name: "Palantir" },
   { symbol: "BBAI", name: "BigBear.ai" },
+  { symbol: "NVDA", name: "NVIDIA" },
+  { symbol: "MSFT", name: "Microsoft" },
+  { symbol: "AAPL", name: "Apple" },
+  { symbol: "AMZN", name: "Amazon" },
+  { symbol: "GOOGL", name: "Alphabet" },
+  { symbol: "META", name: "Meta" },
+  { symbol: "TSLA", name: "Tesla" },
+  { symbol: "AMD", name: "AMD" },
+  { symbol: "ARM", name: "Arm" },
+  { symbol: "SMCI", name: "Super Micro" },
+  { symbol: "ORCL", name: "Oracle" },
+  { symbol: "NFLX", name: "Netflix" },
   { symbol: "CIBR", name: "CIBR ETF" },
   { symbol: "BUG", name: "BUG ETF" },
   { symbol: "IHAK", name: "IHAK ETF" },
@@ -61,19 +79,68 @@ const STOCK_SYMBOLS = [
 const STOCK_CACHE_TTL = 1000 * 20;
 
 const categoryRules = [
-  { key: "Ransomware", words: ["ransomware", "extortion", "locker"] },
-  { key: "Vulnerability", words: ["cve-", "vulnerability", "zero-day", "patch", "exploit"] },
-  { key: "Breach", words: ["breach", "data leak", "stolen data", "database exposed"] },
-  { key: "Malware", words: ["malware", "trojan", "botnet", "spyware", "wiper"] },
-  { key: "Nation-State", words: ["apt", "nation-state", "espionage"] },
-  { key: "Cloud", words: ["aws", "azure", "gcp", "cloud"] },
-  { key: "AI Security", words: ["llm", "ai model", "prompt injection", "ai security"] }
+  { key: "AI", words: ["artificial intelligence", "machine learning", "llm", "foundation model", "copilot", "agentic", "generative"] },
+  { key: "MedTech", words: ["medtech", "medical device", "fda", "clinical", "hospital", "biotech", "healthtech"] },
+  { key: "DefenceTech", words: ["defense", "defence", "military", "drone", "missile", "satellite", "battlefield"] },
+  { key: "Cybersecurity", words: ["cyber", "ransomware", "breach", "exploit", "vulnerability", "cve-", "malware"] },
+  { key: "Cloud", words: ["cloud", "aws", "azure", "gcp", "kubernetes"] },
+  { key: "Semiconductors", words: ["chip", "semiconductor", "fab", "gpu", "processor"] },
+  { key: "Robotics", words: ["robot", "autonomous", "humanoid", "automation"] }
 ];
 
-const severityRules = [
-  { level: "Critical", words: ["critical", "zero-day", "actively exploited", "wormable"] },
-  { level: "High", words: ["ransomware", "breach", "botnet", "exploit"] },
-  { level: "Medium", words: ["vulnerability", "patch", "phishing", "malware"] }
+const impactRules = [
+  {
+    level: "High",
+    words: [
+      "acquisition",
+      "merger",
+      "funding round",
+      "series ",
+      "fda approval",
+      "contract award",
+      "national",
+      "ban",
+      "regulation",
+      "outage",
+      "breach",
+      "launches",
+      "deploys"
+    ]
+  },
+  {
+    level: "Medium",
+    words: ["partnership", "pilot", "beta", "update", "release", "roadmap", "trial", "prototype", "research"]
+  },
+  { level: "Low", words: ["rumor", "preview", "opinion", "event recap"] }
+];
+const TECH_SIGNAL_WORDS = [
+  "ai",
+  "artificial intelligence",
+  "machine learning",
+  "llm",
+  "model",
+  "chip",
+  "semiconductor",
+  "gpu",
+  "robot",
+  "autonomous",
+  "medtech",
+  "biotech",
+  "medical device",
+  "healthtech",
+  "digital health",
+  "defense tech",
+  "defence tech",
+  "drone",
+  "satellite",
+  "cyber",
+  "cloud",
+  "software",
+  "hardware",
+  "platform",
+  "startup",
+  "funding",
+  "api"
 ];
 
 const countryLocations = [
@@ -204,11 +271,11 @@ function scoreByKeyword(text, rules) {
 function classifyItem(title, summary = "", categories = []) {
   const text = `${title || ""} ${summary || ""} ${(categories || []).join(" ")}`;
   const matchedCategory = scoreByKeyword(text, categoryRules);
-  const matchedSeverity = scoreByKeyword(text, severityRules);
+  const matchedImpact = scoreByKeyword(text, impactRules);
 
   return {
     category: matchedCategory ? matchedCategory.key : "General",
-    severity: matchedSeverity ? matchedSeverity.level : "Low"
+    impact: matchedImpact ? matchedImpact.level : "Low"
   };
 }
 
@@ -308,7 +375,7 @@ function normalizeItem(item, source) {
   const rawDate = item.isoDate || item.pubDate || item.published || null;
   const publishedAt = rawDate ? new Date(rawDate).toISOString() : null;
   const categories = Array.isArray(item.categories) ? item.categories : [];
-  const { category, severity } = classifyItem(title, summary, categories);
+  const { category, impact } = classifyItem(title, summary, categories);
   const location = inferLocation(title, summary, categories);
   const image = normalizeImageUrl(pickFeedImage(item), item.link || source.url);
 
@@ -321,10 +388,18 @@ function normalizeItem(item, source) {
     summary: summary.slice(0, 360),
     categories,
     category,
-    severity,
+    impact,
     location,
     image
   };
+}
+
+function isTechItem(item) {
+  if (!item) return false;
+  if ((item.category || "") !== "General") return true;
+
+  const text = `${item.title || ""} ${item.summary || ""} ${(item.categories || []).join(" ")}`.toLowerCase();
+  return TECH_SIGNAL_WORDS.some((word) => text.includes(word));
 }
 
 async function loadFeed(source) {
@@ -339,9 +414,10 @@ async function loadFeed(source) {
 async function loadAllFeeds() {
   const results = await Promise.all(FEEDS.map(loadFeed));
   const merged = results.flat();
+  const techOnly = merged.filter(isTechItem);
   const deduped = new Map();
 
-  for (const item of merged) {
+  for (const item of techOnly) {
     const key = item.link || item.id;
     if (!key) continue;
     if (!deduped.has(key)) {
@@ -349,7 +425,14 @@ async function loadAllFeeds() {
     }
   }
 
-  return Array.from(deduped.values()).sort((a, b) => {
+  const cutoff = Date.now() - NEWS_RETENTION_MS;
+  const recentItems = Array.from(deduped.values()).filter((item) => {
+    if (!item.publishedAt) return false;
+    const publishedTime = new Date(item.publishedAt).getTime();
+    return Number.isFinite(publishedTime) && publishedTime >= cutoff;
+  });
+
+  return recentItems.sort((a, b) => {
     const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
     const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
     return bTime - aTime;
@@ -402,7 +485,7 @@ async function fetchArticleMeta(articleUrl) {
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent": "alohomora/1.0",
+        "User-Agent": "glass/1.0",
         Accept: "text/html,application/xhtml+xml"
       }
     });
@@ -501,8 +584,77 @@ function parseNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseMoney(value) {
+  if (value === null || value === undefined) return null;
+  return parseNumber(String(value).replace(/[$,%+,]/g, "").trim());
+}
+
+function parsePercent(value) {
+  if (value === null || value === undefined) return null;
+  return parseNumber(String(value).replace(/[%+,]/g, "").trim());
+}
+
 function normalizeStooqSymbol(symbol) {
   return `${String(symbol || "").toLowerCase()}.us`;
+}
+
+async function fetchNasdaqQuote(symbol) {
+  const requestUrl = `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=stocks`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9000);
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Accept: "application/json"
+      }
+    });
+
+    if (!response.ok) return null;
+    const payload = await response.json().catch(() => ({}));
+    const primary = payload?.data?.primaryData || null;
+    if (!primary) return null;
+
+    const price = parseMoney(primary.lastSalePrice);
+    if (price === null) return null;
+
+    let changePercent = parsePercent(primary.percentageChange);
+    if (changePercent === null) {
+      const netChange = parseMoney(primary.netChange);
+      if (netChange !== null && price !== 0) {
+        changePercent = (netChange / (price - netChange)) * 100;
+      }
+    }
+
+    return {
+      symbol,
+      price,
+      changePercent
+    };
+  } catch (error) {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchNasdaqStockQuotes() {
+  const mapped = await Promise.all(
+    STOCK_SYMBOLS.map(async ({ symbol, name }) => {
+      const quote = await fetchNasdaqQuote(symbol);
+      return {
+        symbol,
+        name,
+        price: quote?.price ?? null,
+        changePercent: quote?.changePercent ?? null
+      };
+    })
+  );
+
+  return mapped;
 }
 
 async function fetchStooqQuote(symbol) {
@@ -516,7 +668,7 @@ async function fetchStooqQuote(symbol) {
       method: "GET",
       signal: controller.signal,
       headers: {
-        "User-Agent": "alohomora/1.0"
+        "User-Agent": "glass/1.0"
       }
     });
 
@@ -595,7 +747,7 @@ async function fetchStockQuotes(forceRefresh = false) {
       method: "GET",
       signal: controller.signal,
       headers: {
-        "User-Agent": "alohomora/1.0"
+        "User-Agent": "glass/1.0"
       }
     });
     const payload = await response.json().catch(() => ({}));
@@ -620,11 +772,25 @@ async function fetchStockQuotes(forceRefresh = false) {
       warning: null
     };
   } catch (error) {
-    const fallbackItems = await fetchStooqStockQuotes();
-    if (fallbackItems.some((item) => item.price !== null)) {
+    const nasdaqFallbackItems = await fetchNasdaqStockQuotes();
+    if (nasdaqFallbackItems.some((item) => item.price !== null)) {
       stockCache.expiresAt = now + STOCK_CACHE_TTL;
       stockCache.generatedAt = new Date().toISOString();
-      stockCache.items = fallbackItems;
+      stockCache.items = nasdaqFallbackItems;
+      stockCache.warning = null;
+
+      return {
+        generatedAt: stockCache.generatedAt,
+        items: stockCache.items,
+        warning: stockCache.warning
+      };
+    }
+
+    const stooqFallbackItems = await fetchStooqStockQuotes();
+    if (stooqFallbackItems.some((item) => item.price !== null)) {
+      stockCache.expiresAt = now + STOCK_CACHE_TTL;
+      stockCache.generatedAt = new Date().toISOString();
+      stockCache.items = stooqFallbackItems;
       stockCache.warning = "Delayed market data (~15m)";
 
       return {
@@ -648,7 +814,7 @@ async function fetchStockQuotes(forceRefresh = false) {
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/healthz", (_req, res) => {
-  res.status(200).json({ status: "ok", service: "alohomora" });
+  res.status(200).json({ status: "ok", service: "glass" });
 });
 
 app.get("/", (_req, res) => {
@@ -661,12 +827,11 @@ app.get("/changelog", (_req, res) => {
 
 app.get("/api/news", async (req, res) => {
   try {
-    const limit = Number(req.query.limit || 120);
     const feed = await loadAllFeeds();
     res.json({
       generatedAt: new Date().toISOString(),
-      count: Math.min(limit, feed.length),
-      items: feed.slice(0, limit)
+      count: feed.length,
+      items: feed
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to load news feed." });
@@ -707,5 +872,5 @@ app.get("/api/stocks", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Alohomora running at http://localhost:${PORT}`);
+  console.log(`Glass running at http://localhost:${PORT}`);
 });

@@ -5,9 +5,9 @@ const refreshBtn = document.getElementById("refreshBtn");
 const refreshStateNode = document.getElementById("refreshState");
 const searchInput = document.getElementById("search");
 const locationFilterInput = document.getElementById("locationFilter");
-const severityFilter = document.getElementById("severityFilter");
+const impactFilter = document.getElementById("impactFilter");
 const clearFiltersBtn = document.getElementById("clearFilters");
-const incidentCountNode = document.getElementById("incidentCount");
+const eventCountNode = document.getElementById("eventCount");
 const marketsRowsNode = document.getElementById("marketsRows");
 const marketsStateNode = document.getElementById("marketsState");
 const template = document.getElementById("card-template");
@@ -17,6 +17,8 @@ const quickTabs = Array.from(document.querySelectorAll(".quick-tab"));
 const detailsPanel = document.getElementById("detailsPanel");
 const detailsBody = document.getElementById("detailsBody");
 const detailsSourceLink = document.getElementById("detailsSourceLink");
+const shareOnXBtn = document.getElementById("shareOnXBtn");
+const shareOnLinkedInBtn = document.getElementById("shareOnLinkedInBtn");
 const closeDetailsBtn = document.getElementById("closeDetailsBtn");
 
 let rawItems = [];
@@ -30,9 +32,26 @@ let marketsWarning = null;
 let marketsLoading = false;
 
 const articleMetaCache = new Map();
-const severityOrder = { Critical: 4, High: 3, Medium: 2, Low: 1 };
+const impactOrder = { High: 3, Medium: 2, Low: 1 };
 const MARKET_SOURCE_LIMIT = 18;
 const MARKET_REFRESH_INTERVAL = 1000 * 30;
+const MANDATORY_X_HASHTAG = "atrglass";
+const X_SHARE_MAX_LENGTH = 280;
+const X_SHARE_TITLE_MAX = 110;
+const X_SHARE_SUMMARY_MAX = 180;
+const X_SHARE_MIN_HASHTAGS = 3;
+const X_SHARE_MAX_HASHTAGS = 6;
+const X_HASHTAG_KEYWORDS = [
+  { pattern: /\b(ai|artificial intelligence|machine learning|llm|copilot|agentic|generative)\b/i, tag: "AI" },
+  { pattern: /\b(medtech|healthtech|biotech|clinical|hospital|medical)\b/i, tag: "MedTech" },
+  { pattern: /\b(defense|defence|military|drone|satellite)\b/i, tag: "DefenceTech" },
+  { pattern: /\b(cyber|ransomware|breach|vulnerability|malware|cve)\b/i, tag: "CyberSecurity" },
+  { pattern: /\b(chip|semiconductor|gpu)\b/i, tag: "Semiconductors" },
+  { pattern: /\b(cloud|aws|azure|gcp)\b/i, tag: "CloudComputing" },
+  { pattern: /\b(robot|autonomous|automation)\b/i, tag: "Robotics" },
+  { pattern: /\b(startup|funding|series)\b/i, tag: "Startup" },
+  { pattern: /\b(defense|defence)\b/i, tag: "Defense" }
+];
 
 function escapeHtml(value) {
   return String(value || "")
@@ -41,6 +60,167 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function normalizeWhitespace(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function truncateText(value = "", maxLength = 180) {
+  const text = normalizeWhitespace(value);
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function toHashtagToken(value = "") {
+  const cleaned = normalizeWhitespace(String(value || "").replace(/^#+/, "").replace(/[^A-Za-z0-9 ]+/g, " "));
+  if (!cleaned) return "";
+
+  const token = cleaned
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => {
+      if (word.length <= 3) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join("");
+
+  return token.slice(0, 20);
+}
+
+function collectDerivedHashtags(event = {}) {
+  const tags = [];
+  const seen = new Set();
+
+  const addTag = (rawTag) => {
+    const token = toHashtagToken(rawTag);
+    if (!token) return;
+    const normalized = token.toLowerCase();
+    if (normalized === MANDATORY_X_HASHTAG) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    tags.push(token);
+  };
+
+  const preferredTags = [];
+  if (Array.isArray(event.tags)) preferredTags.push(...event.tags);
+  if (Array.isArray(event.categories)) preferredTags.push(...event.categories);
+  if (event.category) preferredTags.push(event.category);
+
+  for (const tag of preferredTags) addTag(tag);
+
+  const content = normalizeWhitespace(`${event.title || ""} ${event.summary || ""} ${event.description || ""}`);
+  const existingHashtags = content.match(/#[A-Za-z0-9_]+/g) || [];
+  for (const hashtag of existingHashtags) addTag(hashtag);
+
+  const lowerContent = content.toLowerCase();
+  for (const rule of X_HASHTAG_KEYWORDS) {
+    if (rule.pattern.test(lowerContent)) addTag(rule.tag);
+  }
+
+  if (!tags.length && content) {
+    addTag("TechNews");
+  }
+
+  const fallbackTags = [event.category, event.source, "TechNews", "Innovation", "FutureTech"];
+  for (const fallbackTag of fallbackTags) {
+    if (tags.length >= X_SHARE_MIN_HASHTAGS) break;
+    addTag(fallbackTag);
+  }
+
+  return tags.slice(0, X_SHARE_MAX_HASHTAGS);
+}
+
+function buildShortShareSummary(event = {}) {
+  const candidates = [event.summary, event.description, event.impact];
+  const selected = candidates.find((entry) => normalizeWhitespace(entry).length > 0);
+
+  if (selected) {
+    return truncateText(selected, X_SHARE_SUMMARY_MAX);
+  }
+
+  const fallbackSummary = normalizeWhitespace(
+    `${event.impact || "Emerging"} impact ${event.category || "technology"} signal${event.source ? ` from ${event.source}` : ""}.`
+  );
+  return truncateText(fallbackSummary || "Emerging technology update.", X_SHARE_SUMMARY_MAX);
+}
+
+function buildXShareText(event = {}) {
+  let title = truncateText(normalizeWhitespace(event.title || event.name || "Technology update"), X_SHARE_TITLE_MAX);
+  const baseSummary = buildShortShareSummary(event);
+  const derivedHashtags = collectDerivedHashtags(event);
+  let hashtagCount = Math.min(derivedHashtags.length, X_SHARE_MAX_HASHTAGS);
+
+  const buildTextForCount = (count) => {
+    const hashtagPrefix = count > 0 ? `${derivedHashtags.slice(0, count).map((tag) => `#${tag}`).join(" ")} ` : "";
+    const hashtagLine = `${hashtagPrefix}#${MANDATORY_X_HASHTAG}`;
+    const availableSummary = Math.max(0, X_SHARE_MAX_LENGTH - title.length - hashtagLine.length - 2);
+    const summary = truncateText(baseSummary, Math.min(X_SHARE_SUMMARY_MAX, availableSummary));
+    return `${title}\n${summary}\n${hashtagLine}`;
+  };
+
+  let composed = buildTextForCount(hashtagCount);
+
+  while (composed.length > X_SHARE_MAX_LENGTH && hashtagCount > 1) {
+    hashtagCount -= 1;
+    composed = buildTextForCount(hashtagCount);
+  }
+
+  if (composed.length > X_SHARE_MAX_LENGTH) {
+    const hashtagPrefix = hashtagCount > 0 ? `${derivedHashtags.slice(0, hashtagCount).map((tag) => `#${tag}`).join(" ")} ` : "";
+    const hashtagLine = `${hashtagPrefix}#${MANDATORY_X_HASHTAG}`;
+    const maxTitle = Math.max(24, X_SHARE_MAX_LENGTH - hashtagLine.length - 2);
+    title = truncateText(title, maxTitle);
+    composed = buildTextForCount(hashtagCount);
+  }
+
+  return composed;
+}
+
+function buildXShareUrl(event = {}) {
+  const shareText = buildXShareText(event);
+  return `https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+}
+
+function buildLinkedInShareText(event = {}) {
+  return buildXShareText(event);
+}
+
+function buildLinkedInShareUrl(event = {}) {
+  const shareText = buildLinkedInShareText(event);
+  return `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareText)}`;
+}
+
+async function buildSelectedShareEvent() {
+  const selectedItem = selectedItemId ? getItemById(selectedItemId) : null;
+  if (!selectedItem) return null;
+
+  let meta = selectedItem.link ? articleMetaCache.get(selectedItem.link) || null : null;
+  if (!meta && selectedItem.link) {
+    meta = await hydrateDetailsMeta(selectedItem);
+  }
+
+  return {
+    ...selectedItem,
+    summary: normalizeWhitespace(meta?.description || selectedItem.summary || selectedItem.description || ""),
+    description: normalizeWhitespace(meta?.description || selectedItem.description || "")
+  };
+}
+
+async function shareSelectedEventOnX() {
+  const shareEvent = await buildSelectedShareEvent();
+  if (!shareEvent) return;
+
+  const shareUrl = buildXShareUrl(shareEvent);
+  window.open(shareUrl, "_blank", "noopener,noreferrer");
+}
+
+async function shareSelectedEventOnLinkedIn() {
+  const shareEvent = await buildSelectedShareEvent();
+  if (!shareEvent) return;
+
+  const shareUrl = buildLinkedInShareUrl(shareEvent);
+  window.open(shareUrl, "_blank", "noopener,noreferrer");
 }
 
 function formatTime(dateString) {
@@ -121,11 +301,10 @@ function updateMarketsState() {
   marketsStateNode.textContent = marketsWarning ? `${age} • delayed` : age;
 }
 
-function getMarkerColor(severity) {
-  if (severity === "Critical") return "#f3f3f3";
-  if (severity === "High") return "#cccccc";
-  if (severity === "Medium") return "#a6a6a6";
-  return "#0011FF";
+function getMarkerColor(impact) {
+  if (impact === "High") return "#ff4d4f";
+  if (impact === "Medium") return "#f7b731";
+  return "#2ecc71";
 }
 
 function initMap() {
@@ -149,13 +328,13 @@ function initMap() {
 function computeStats(items) {
   const sourceCount = new Set(items.map((item) => item.source)).size;
   const mappableCount = items.filter((item) => item.location).length;
-  const criticalCount = items.filter((item) => item.severity === "Critical").length;
+  const highImpactCount = items.filter((item) => item.impact === "High").length;
 
   return [
     { label: "Stories", value: items.length },
     { label: "Mapped", value: mappableCount },
     { label: "Sources", value: sourceCount },
-    { label: "Critical", value: criticalCount }
+    { label: "High Impact", value: highImpactCount }
   ];
 }
 
@@ -184,15 +363,15 @@ function createMapClusters(items) {
       buckets.set(key, {
         ...item.location,
         count: 1,
-        topSeverity: item.severity,
+        topImpact: item.impact,
         topItem: item
       });
       continue;
     }
 
     current.count += 1;
-    if ((severityOrder[item.severity] || 0) > (severityOrder[current.topSeverity] || 0)) {
-      current.topSeverity = item.severity;
+    if ((impactOrder[item.impact] || 0) > (impactOrder[current.topImpact] || 0)) {
+      current.topImpact = item.impact;
       current.topItem = item;
     }
   }
@@ -229,14 +408,14 @@ function renderMap(items) {
   for (const cluster of clusters) {
     const marker = L.circleMarker([cluster.lat, cluster.lng], {
       radius: Math.min(12, 4 + cluster.count * 1.05),
-      color: getMarkerColor(cluster.topSeverity),
-      fillColor: getMarkerColor(cluster.topSeverity),
+      color: getMarkerColor(cluster.topImpact),
+      fillColor: getMarkerColor(cluster.topImpact),
       fillOpacity: 0.48,
       weight: 1
     });
 
     marker.bindPopup(
-      `<div class="map-popup"><h3>${escapeHtml(cluster.label)}</h3><p>${cluster.count} incident(s) • ${escapeHtml(cluster.topSeverity)}</p></div>`
+      `<div class="map-popup"><h3>${escapeHtml(cluster.label)}</h3><p>${cluster.count} event(s) • ${escapeHtml(cluster.topImpact)} impact</p></div>`
     );
     marker.on("click", () => setSelectedIncident(cluster.topItem.id, { scroll: true, flyTo: false }));
     marker.addTo(markersLayer);
@@ -253,7 +432,7 @@ function renderFeed(items) {
 
   for (const item of items) {
     const clone = template.content.cloneNode(true);
-    const severity = (item.severity || "Low").toLowerCase();
+    const impact = (item.impact || "Low").toLowerCase();
     const card = clone.querySelector(".live-item");
     const titleNode = clone.querySelector(".title");
 
@@ -261,14 +440,14 @@ function renderFeed(items) {
     card.tabIndex = 0;
     card.setAttribute("role", "button");
     card.setAttribute("aria-label", `Open details for ${item.title}`);
-    card.classList.add(`live-${severity}`);
+    card.classList.add(`live-${impact}`);
 
     if (focusedItemId === item.id) {
       card.classList.add("is-focused");
     }
 
-    clone.querySelector(".severity").textContent = `S${severityOrder[item.severity] || 1}`;
-    clone.querySelector(".severity").classList.add(`severity-${severity}`);
+    clone.querySelector(".impact").textContent = item.impact || "Low";
+    clone.querySelector(".impact").classList.add(`impact-${impact}`);
     clone.querySelector(".category").textContent = item.category || "General";
     clone.querySelector(".source").textContent = item.source || "Unknown";
     clone.querySelector(".place").textContent = item.location?.label
@@ -287,12 +466,14 @@ function closeDetails() {
   selectedItemId = null;
   detailsPanel.classList.remove("is-open");
   detailsBody.classList.add("is-empty");
-  detailsBody.innerHTML = "<p class='details-empty-text'>Select an incident to open details.</p>";
+  detailsBody.innerHTML = "<p class='details-empty-text'>Select an event to open details.</p>";
   detailsSourceLink.hidden = true;
+  if (shareOnXBtn) shareOnXBtn.disabled = true;
+  if (shareOnLinkedInBtn) shareOnLinkedInBtn.disabled = true;
 }
 
 function renderDetails(item, meta = null) {
-  const severity = (item.severity || "Low").toLowerCase();
+  const impact = (item.impact || "Low").toLowerCase();
   const locationLabel = item.location?.label
     ? `${item.location.label}${item.location.type ? ` (${item.location.type})` : ""}`
     : "Global";
@@ -309,19 +490,21 @@ function renderDetails(item, meta = null) {
     detailsSourceLink.hidden = true;
     detailsSourceLink.removeAttribute("href");
   }
+  if (shareOnXBtn) shareOnXBtn.disabled = false;
+  if (shareOnLinkedInBtn) shareOnLinkedInBtn.disabled = false;
 
   detailsBody.innerHTML = `
     <article class="incident-details">
       <div class="incident-tags">
         <span class="badge category">${escapeHtml(item.category || "General")}</span>
-        <span class="badge severity severity-${severity}">S${severityOrder[item.severity] || 1}</span>
+        <span class="badge impact impact-${impact}">${escapeHtml(item.impact || "Low")} Impact</span>
       </div>
       <h4 class="incident-title">${escapeHtml(item.title)}</h4>
       <div class="incident-meta-row">
         <span>${escapeHtml(timeAgo(item.publishedAt))}</span>
         <span>${escapeHtml(locationLabel)}</span>
       </div>
-      ${image ? `<div class="incident-image-wrap"><img src="${escapeHtml(image)}" alt="Incident article visual" class="incident-image" /></div>` : ""}
+      ${image ? `<div class="incident-image-wrap"><img src="${escapeHtml(image)}" alt="Event article visual" class="incident-image" /></div>` : ""}
       <section class="incident-section">
         <h5>Summary</h5>
         <p>${escapeHtml(summary)}</p>
@@ -381,25 +564,25 @@ async function setSelectedIncident(itemId, options = {}) {
 
 function applyFilters() {
   const query = searchInput.value.trim().toLowerCase();
-  const severity = severityFilter.value;
+  const impact = impactFilter.value;
   const locationQuery = locationFilterInput.value.trim().toLowerCase();
 
   filteredItems = rawItems.filter((item) => {
-    const matchesSeverity = severity === "ALL" || item.severity === severity;
+    const matchesImpact = impact === "ALL" || item.impact === impact;
     const fullText = `${item.title || ""} ${item.summary || ""} ${item.category || ""} ${item.source || ""}`.toLowerCase();
     const locationText = (item.location?.label || "").toLowerCase();
     const matchesQuery = !query || fullText.includes(query);
     const matchesLocation = !locationQuery || locationText.includes(locationQuery);
-    return matchesSeverity && matchesQuery && matchesLocation;
+    return matchesImpact && matchesQuery && matchesLocation;
   });
 
   if (selectedItemId && !filteredItems.some((item) => item.id === selectedItemId)) {
     closeDetails();
   }
 
-  if (incidentCountNode) {
+  if (eventCountNode) {
     const label = filteredItems.length === 1 ? "live event" : "live events";
-    incidentCountNode.textContent = `${filteredItems.length} ${label}`;
+    eventCountNode.textContent = `${filteredItems.length} ${label}`;
   }
 
   renderStats(filteredItems);
@@ -499,7 +682,7 @@ async function loadNews() {
   refreshStateNode.textContent = "Refreshing...";
 
   try {
-    const response = await fetch("/api/news?limit=140");
+    const response = await fetch("/api/news");
     if (!response.ok) throw new Error("Feed request failed.");
 
     const data = await response.json();
@@ -525,13 +708,13 @@ async function loadNews() {
 refreshBtn.addEventListener("click", loadNews);
 searchInput.addEventListener("input", applyFilters);
 locationFilterInput.addEventListener("input", applyFilters);
-severityFilter.addEventListener("change", applyFilters);
+impactFilter.addEventListener("change", applyFilters);
 
 if (clearFiltersBtn) {
   clearFiltersBtn.addEventListener("click", () => {
     searchInput.value = "";
     locationFilterInput.value = "";
-    severityFilter.value = "ALL";
+    impactFilter.value = "ALL";
     focusedItemId = null;
     selectedItemId = null;
     applyFilters();
@@ -555,6 +738,14 @@ if (closeDetailsBtn) {
       card.classList.remove("is-focused");
     }
   });
+}
+
+if (shareOnXBtn) {
+  shareOnXBtn.addEventListener("click", shareSelectedEventOnX);
+}
+
+if (shareOnLinkedInBtn) {
+  shareOnLinkedInBtn.addEventListener("click", shareSelectedEventOnLinkedIn);
 }
 
 feedNode.addEventListener("click", (event) => {
